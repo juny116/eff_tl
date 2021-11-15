@@ -15,6 +15,7 @@
 # limitations under the License.
 """PyTorch OpenAI GPT-2 model."""
 
+from logging import log
 import os
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -1283,7 +1284,7 @@ class GPT2ForSequenceClassification(GPT2PreTrainedModel):
                     f"{self.__class__.__name__} will not detect padding tokens in `inputs_embeds`. Results may be "
                     f"unexpected if using padding tokens in conjunction with `inputs_embeds.`"
                 )
-
+    
         pooled_logits = logits[range(batch_size), sequence_lengths]
 
         loss = None

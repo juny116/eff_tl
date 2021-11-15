@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 pretrained_checkpoints/
+out/
 
 # C extensions
 *.so
