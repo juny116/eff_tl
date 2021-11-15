@@ -1,2 +1,2 @@
-#nsml: kaniblu/ml:python3.7.7-cuda10.1-cudnn7-pytorch1.5-transformers2.10-bertbase-gpt2-spacy2.2-en-apex4a1aa97
 transformers==4.3.0
+loralib
