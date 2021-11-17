@@ -155,6 +155,9 @@ class GPT2Config(PretrainedConfig):
         apply_adapter=False,
         adapter_type=None,
         adapter_size=None,
+        apply_prefix=False,
+        num_prefix=0,
+        mid_dim=0,
         **kwargs
     ):
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, pad_token_id=pad_token_id, **kwargs)
@@ -189,6 +192,11 @@ class GPT2Config(PretrainedConfig):
         self.apply_adapter=apply_adapter
         self.adapter_type=adapter_type
         self.adapter_size=adapter_size
+
+        # for prefix-tuning
+        self.apply_prefix=apply_prefix
+        self.num_prefix=num_prefix
+        self.mid_dim=mid_dim
 
     @property
     def max_position_embeddings(self):

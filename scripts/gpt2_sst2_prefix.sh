@@ -22,4 +22,7 @@ run_glue.py \
 --save_strategy epoch \
 --warmup_ratio 0.06 \
 --seed 0 \
---weight_decay 0.1
+--weight_decay 0.1 \
+--apply_prefix \
+--num_prefix 5 \
+--mid_dim 512
