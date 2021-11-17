@@ -927,9 +927,7 @@ class Trainer:
         self.state = TrainerState()
         self.state.is_hyper_param_search = trial is not None
 
-        # TODO : fix!
-        model = self.model_wrapped
-        #model = self._wrap_model(self.model_wrapped)
+        model = self._wrap_model(self.model_wrapped)
 
         # for the rest of this function `model` is the outside model, whether it was wrapped or not
         if model is not self.model:

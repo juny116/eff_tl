@@ -319,7 +319,8 @@ class Block(nn.Module):
         # add adaptor
         if hasattr(self, 'attention_adapter'):
             hidden_states = self.attention_adapter(attn_output, residual=hidden_states)
-        # hidden_states = attn_output + hidden_states
+        else:
+            hidden_states = attn_output + hidden_states
 
         if encoder_hidden_states is not None:
             # add one self-attention block for cross-attention
@@ -344,7 +345,8 @@ class Block(nn.Module):
         # add adaptor
         if hasattr(self, 'output_adapter'):
             hidden_states = self.output_adapter(feed_forward_hidden_states, residual=hidden_states)
-        # hidden_states = hidden_states + feed_forward_hidden_states
+        else:
+            hidden_states = hidden_states + feed_forward_hidden_states
 
         if use_cache:
             outputs = (hidden_states,) + outputs
@@ -712,6 +714,7 @@ class GPT2Model(GPT2PreTrainedModel):
         if past_key_values is None:
             past_length = 0
             past_key_values = tuple([None] * len(self.h))
+            # TODO : remove?
             # for prefix-tuning
             if self.config.apply_prefix:
                 # shape : [(2, batch, num_head, num_prefix, embedding_dim_per_head) * num_layer] -> for key/value

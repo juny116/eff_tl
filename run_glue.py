@@ -446,7 +446,7 @@ def main():
                 
     num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_total_params = sum(p.numel() for p in model.parameters())
-    logger.info(f'trainable params {num_trainable_params} / total params {num_total_params} = ratio {num_trainable_params/num_total_params} ')
+    logger.info(f'trainable params {num_trainable_params} / total params {num_total_params} = ratio {100 * num_trainable_params/num_total_params} ')
     
     # Preprocessing the datasets
     if data_args.task_name is not None:
