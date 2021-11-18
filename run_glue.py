@@ -520,6 +520,7 @@ def main():
         train_dataset = datasets["train"]
         if data_args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(data_args.max_train_samples))
+        logger.info(f'# Train dataset : {len(train_dataset)}')
 
     if training_args.do_eval:
         if "validation" not in datasets and "validation_matched" not in datasets:
@@ -527,6 +528,7 @@ def main():
         eval_dataset = datasets["validation_matched" if data_args.task_name == "mnli" else "validation"]
         if data_args.max_val_samples is not None:
             eval_dataset = eval_dataset.select(range(data_args.max_val_samples))
+        logger.info(f'# Eval  dataset : {len(eval_dataset)}')
 
     if training_args.do_predict or data_args.task_name is not None or data_args.test_file is not None:
         if "test" not in datasets and "test_matched" not in datasets:
@@ -534,6 +536,7 @@ def main():
         test_dataset = datasets["test_matched" if data_args.task_name == "mnli" else "test"]
         if data_args.max_test_samples is not None:
             test_dataset = test_dataset.select(range(data_args.max_test_samples))
+        logger.info(f'# Test  dataset : {len(test_dataset)}')
 
     # TODO : not used
     # Log a few random samples from the training set:

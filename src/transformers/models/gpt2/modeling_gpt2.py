@@ -612,7 +612,7 @@ class GPT2Model(GPT2PreTrainedModel):
         # shape : (num_layer * 2, batch, num_head, num_prefix, embedding_dim_per_head)
         prefix_embedding = prefix_embedding.permute([2, 0, 3, 1, 4])
 
-        # shape : [(2, batch, num_head, num_prefix, embedding_dim_per_head) * num_layer] -> for key/value
+        # shape : [(num_layer, batch, num_head, num_prefix, embedding_dim_per_head) * 2] -> for key/value
         prefix_embeddings = prefix_embedding.split(2)
 
         # List[torch.Tensor]
