@@ -520,15 +520,13 @@ def main():
         train_dataset = datasets["train"]
         if data_args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(data_args.max_train_samples))
-        logger.info(f'# Train dataset : {len(train_dataset)}')
-
+        
     if training_args.do_eval:
         if "validation" not in datasets and "validation_matched" not in datasets:
             raise ValueError("--do_eval requires a validation dataset")
         eval_dataset = datasets["validation_matched" if data_args.task_name == "mnli" else "validation"]
         if data_args.max_val_samples is not None:
             eval_dataset = eval_dataset.select(range(data_args.max_val_samples))
-        logger.info(f'# Eval  dataset : {len(eval_dataset)}')
 
     if training_args.do_predict or data_args.task_name is not None or data_args.test_file is not None:
         if "test" not in datasets and "test_matched" not in datasets:
@@ -536,7 +534,26 @@ def main():
         test_dataset = datasets["test_matched" if data_args.task_name == "mnli" else "test"]
         if data_args.max_test_samples is not None:
             test_dataset = test_dataset.select(range(data_args.max_test_samples))
-        logger.info(f'# Test  dataset : {len(test_dataset)}')
+
+        ## if there is no label in test set -> we cannot evaluate final score
+        ## we use the dev set as the final test set 
+        ## split the train set 70:30 -> train : dev set
+        if "label" not in test_dataset:
+            assert train_dataset is not None, 'Train dataset is None.'
+            assert eval_dataset is not None, 'Eval dataset is None.'
+            train_test_split = train_dataset.train_test_split(test_size=0.3)
+
+            test_dataset = eval_dataset
+            train_dataset = train_test_split['train']
+            eval_dataset = train_test_split['test']
+
+    if training_args.do_train:
+        logger.info(f'# TRAIN dataset : {len(train_dataset)}')
+    if training_args.do_eval:
+        logger.info(f'# Eval  dataset : {len(eval_dataset)}')
+    if training_args.do_predict or data_args.task_name is not None or data_args.test_file is not None:
+        logger.info(f'# TEST  dataset : {len(test_dataset)}')
+    ## DONE LOADING DATASET ##
 
     # TODO : not used
     # Log a few random samples from the training set:

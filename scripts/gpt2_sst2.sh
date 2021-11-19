@@ -2,7 +2,8 @@ export CUDA_VISIBLE_DEVICES=0,1,2
 export num_gpus=3
 export CUBLAS_WORKSPACE_CONFIG=":16:8" # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
 export PYTHONHASHSEED=0
-export output_dir="./sst2_gpt"
+export output_dir="./sst2_gpt2_medium"
+#export output_dir="./sst2_gpt"
 export TORCH_DISTRIBUTED_DEBUG=INFO
 
 learning_rates="1e-5"
@@ -10,7 +11,7 @@ learning_rates="1e-5"
 for learning_rate in $learning_rates; do
     python -m torch.distributed.launch --nproc_per_node=$num_gpus \
         run_glue.py \
-        --model_name_or_path gpt2 \
+        --model_name_or_path gpt2-medium \
         --task_name sst2 \
         --do_train \
         --do_eval \
