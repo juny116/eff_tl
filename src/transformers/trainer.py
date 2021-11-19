@@ -652,7 +652,6 @@ class Trainer:
                 optim=optimizer_cls,
                 **optimizer_kwargs,
             )
-
         return optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
 
     def create_scheduler(self, optimizer: torch.optim.Optimizer, num_training_steps: int) -> torch.optim.lr_scheduler.LambdaLR:
@@ -782,6 +781,8 @@ class Trainer:
         if not training:
             return model
 
+        print('find unused prarms', self.args.ddp_find_unused_parameters)
+        # None !
         # Distributed training (should be after apex fp16 initialization)
         if self.sharded_ddp is not None:
             # Sharded DDP!
@@ -800,7 +801,6 @@ class Trainer:
                     reshard_after_forward=zero_3,
                     cpu_offload=cpu_offload,
                 ).to(self.args.device)
-
         elif is_sagemaker_distributed_available():
             model = DDP(model, device_ids=[dist.get_local_rank()], broadcast_buffers=False)
         elif self.args.local_rank != -1:

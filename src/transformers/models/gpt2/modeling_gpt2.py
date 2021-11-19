@@ -283,6 +283,7 @@ class Block(nn.Module):
         hidden_size = config.n_embd
         inner_dim = config.n_inner if config.n_inner is not None else 4 * hidden_size
         self.ln_1 = nn.LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
+        # change !
         self.attn = Attention(hidden_size, n_ctx, config, scale)
         self.ln_2 = nn.LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
         if config.add_cross_attention:
@@ -318,7 +319,8 @@ class Block(nn.Module):
         # add adaptor
         if hasattr(self, 'attention_adapter'):
             hidden_states = self.attention_adapter(attn_output, residual=hidden_states)
-        # hidden_states = attn_output + hidden_states
+        else:
+            hidden_states = attn_output + hidden_states
 
         if encoder_hidden_states is not None:
             # add one self-attention block for cross-attention
@@ -343,7 +345,8 @@ class Block(nn.Module):
         # add adaptor
         if hasattr(self, 'output_adapter'):
             hidden_states = self.output_adapter(feed_forward_hidden_states, residual=hidden_states)
-        # hidden_states = hidden_states + feed_forward_hidden_states
+        else:
+            hidden_states = hidden_states + feed_forward_hidden_states
 
         if use_cache:
             outputs = (hidden_states,) + outputs
@@ -568,11 +571,52 @@ class GPT2Model(GPT2PreTrainedModel):
         self.h = nn.ModuleList([Block(config.n_ctx, config, scale=True) for _ in range(config.n_layer)])
         self.ln_f = nn.LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
 
+        if config.apply_prefix:
+            print('APPLY PREFIX...')
+            self.n_layer = config.n_layer
+            self.n_head = config.n_head
+            self.n_embd = config.n_embd
+            self.n_embd_per_head = config.n_embd // config.n_head
+
+            self.prefix_tokens = torch.arange(config.num_prefix).long()
+            self.prefix_wte = nn.Embedding(config.num_prefix, config.n_embd)
+            # reparameterization
+            # (batch, embd) -> (batch, mid_dim) -> Tanh -> (batch, n_layer * embd * 2)
+            # split into 2 for k/v
+            self.prefix_trans = nn.Sequential(
+                    nn.Linear(config.n_embd, config.mid_dim),
+                    nn.Tanh(),
+                    nn.Linear(config.mid_dim, config.n_layer * 2 * config.n_embd))
+            print('DONE PREFIX INIT')
+
         self.init_weights()
 
         # Model parallel
         self.model_parallel = False
         self.device_map = None
+    
+    # for prefix-tuning
+    def get_prefix(self, batch_size:int):
+        assert self.config.apply_prefix, 'get_prefix() method is only used for prefix-tuning. Set apply_prefix=True to use prefix-tuning.'
+        # shape : (num_prefix, ) -> (1, num_prefix) -> (batch, num_prefix)
+        prefix_tokens = self.prefix_tokens.unsqueeze(0).expand(batch_size, -1).to(self.device)
+        # shape : (batch, num_prefix, embedding)
+        prefix_embedding = self.prefix_wte(prefix_tokens)
+        # shape : (batch, num_prefix, num_layer * embedding * 2)
+        prefix_embedding = self.prefix_trans(prefix_embedding)
+        batch_size, num_prefix, _ = prefix_embedding.shape
+
+        # shape : (batch, num_prefix, num_layer * 2, num_head, embedding_dim_per_head)
+        prefix_embedding = prefix_embedding.view(batch_size, num_prefix, self.n_layer * 2, self.n_head, self.n_embd_per_head)
+        prefix_embedding = self.drop(prefix_embedding)
+        # shape : (num_layer * 2, batch, num_head, num_prefix, embedding_dim_per_head)
+        prefix_embedding = prefix_embedding.permute([2, 0, 3, 1, 4])
+
+        # shape : [(num_layer, batch, num_head, num_prefix, embedding_dim_per_head) * 2] -> for key/value
+        prefix_embeddings = prefix_embedding.split(2)
+
+        # List[torch.Tensor]
+        return prefix_embeddings
 
     @add_start_docstrings(PARALLELIZE_DOCSTRING)
     def parallelize(self, device_map=None):
@@ -670,6 +714,11 @@ class GPT2Model(GPT2PreTrainedModel):
         if past_key_values is None:
             past_length = 0
             past_key_values = tuple([None] * len(self.h))
+            # TODO : remove?
+            # for prefix-tuning
+            if self.config.apply_prefix:
+                # shape : [(2, batch, num_head, num_prefix, embedding_dim_per_head) * num_layer] -> for key/value
+                past_key_values = self.get_prefix(batch_size)
         else:
             past_length = past_key_values[0][0].size(-2)
         if position_ids is None:
@@ -774,7 +823,7 @@ class GPT2Model(GPT2PreTrainedModel):
             else:
                 outputs = block(
                     hidden_states,
-                    layer_past=layer_past,
+                    layer_past=layer_past,          # (2, batch, num_head, num_prefix, embedding_dim_per_head)                      
                     attention_mask=attention_mask,
                     head_mask=head_mask[i],
                     encoder_hidden_states=encoder_hidden_states,
@@ -1301,13 +1350,14 @@ class GPT2ForSequenceClassification(GPT2PreTrainedModel):
             output = (pooled_logits,) + transformer_outputs[1:]
             return ((loss,) + output) if loss is not None else output
 
-        # return SequenceClassifierOutputWithPast(
-        #     loss=loss,
-        #     logits=pooled_logits,
-        #     past_key_values=transformer_outputs.past_key_values,
-        #     hidden_states=transformer_outputs.hidden_states,
-        #     attentions=transformer_outputs.attentions,
-        # )
+        return SequenceClassifierOutputWithPast(
+            loss=loss,
+            logits=pooled_logits,
+            past_key_values=transformer_outputs.past_key_values,
+            hidden_states=transformer_outputs.hidden_states,
+            attentions=transformer_outputs.attentions,
+        )
+        # TODO : fix
         return SequenceClassifierOutput(
             loss=loss,
             logits=pooled_logits,

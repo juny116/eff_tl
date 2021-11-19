@@ -218,6 +218,19 @@ class ModelArguments:
         metadata={"help": "Token Masking Probability"},
     )
 
+    # for prefix-tuning
+    apply_prefix: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to apply prefix or not."},
+    )
+    num_prefix: Optional[int] = field(
+        default=5,
+        metadata={"help": "Number of prefix to add."},
+    )
+    mid_dim: Optional[int] = field(
+        default=512,
+        metadata={"help": "Mid dim size for prefix reparameterization."},
+    )
     
 def main():
     # See all possible arguments in src/transformers/training_args.py
@@ -358,6 +371,10 @@ def main():
         adapter_size=model_args.adapter_size,
         reg_loss_wgt=model_args.reg_loss_wgt,
         masking_prob=model_args.masking_prob,
+        # for prefix-tuning
+        apply_prefix=model_args.apply_prefix,
+        num_prefix=model_args.num_prefix,
+        mid_dim=model_args.mid_dim,
     )
 
     tokenizer = AutoTokenizer.from_pretrained(
@@ -410,21 +427,27 @@ def main():
     if model_args.apply_bitfit:
         trainable_params.append('bias')
 
+    if model_args.apply_prefix:
+        trainable_params.append('prefix')
+
     if len(trainable_params) > 0:
         for name, param in model.named_parameters():
             if name.startswith('deberta') or name.startswith('roberta') or name.startswith('transformer'):
                 param.requires_grad = False
                 for trainable_param in trainable_params:
                     if trainable_param in name:
+                        print('>> TRAIN', name, param.shape, '->', param.numel())
                         param.requires_grad = True
                         # print(f'trainable param {trainable_param}')
                         break
             else:
+                print('>> OTHERS', name, param.shape, '->', param.numel())
                 param.requires_grad = True
+                
     num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_total_params = sum(p.numel() for p in model.parameters())
-    logger.info(f'total params {num_total_params} / trainable params {num_trainable_params}')
-
+    logger.info(f'trainable params {num_trainable_params} / total params {num_total_params} = ratio {100 * num_trainable_params/num_total_params} ')
+    
     # Preprocessing the datasets
     if data_args.task_name is not None:
         sentence1_key, sentence2_key = task_to_keys[data_args.task_name]
@@ -478,11 +501,16 @@ def main():
         args = (
             (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key])
         )
+        # input_ids, attention_mask
         result = tokenizer(*args, padding=padding, max_length=max_seq_length, truncation=True)
 
         # Map labels to IDs (not necessary for GLUE tasks)
         if label_to_id is not None and "label" in examples:
             result["label"] = [(label_to_id[l] if l != -1 else -1) for l in examples["label"]]
+
+        # TODO : remove
+        if model_args.apply_prefix:
+            result.pop('attention_mask')
         return result
 
     datasets = datasets.map(preprocess_function, batched=True, load_from_cache_file=not data_args.overwrite_cache)
@@ -492,7 +520,7 @@ def main():
         train_dataset = datasets["train"]
         if data_args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(data_args.max_train_samples))
-
+        
     if training_args.do_eval:
         if "validation" not in datasets and "validation_matched" not in datasets:
             raise ValueError("--do_eval requires a validation dataset")
@@ -507,10 +535,31 @@ def main():
         if data_args.max_test_samples is not None:
             test_dataset = test_dataset.select(range(data_args.max_test_samples))
 
-    # Log a few random samples from the training set:
+        ## if there is no label in test set -> we cannot evaluate final score
+        ## we use the dev set as the final test set 
+        ## split the train set 70:30 -> train : dev set
+        if "label" not in test_dataset:
+            assert train_dataset is not None, 'Train dataset is None.'
+            assert eval_dataset is not None, 'Eval dataset is None.'
+            train_test_split = train_dataset.train_test_split(test_size=0.3)
+
+            test_dataset = eval_dataset
+            train_dataset = train_test_split['train']
+            eval_dataset = train_test_split['test']
+
     if training_args.do_train:
-        for index in random.sample(range(len(train_dataset)), 3):
-            logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+        logger.info(f'# TRAIN dataset : {len(train_dataset)}')
+    if training_args.do_eval:
+        logger.info(f'# Eval  dataset : {len(eval_dataset)}')
+    if training_args.do_predict or data_args.task_name is not None or data_args.test_file is not None:
+        logger.info(f'# TEST  dataset : {len(test_dataset)}')
+    ## DONE LOADING DATASET ##
+
+    # TODO : not used
+    # Log a few random samples from the training set:
+    #if training_args.do_train:
+    #    for index in random.sample(range(len(train_dataset)), 3):
+    #        logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
     # Get the metric function
     if data_args.task_name is not None:
@@ -540,6 +589,9 @@ def main():
         data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
     else:
         data_collator = None
+
+    ## TODO : remove?
+    training_args.ddp_find_unused_parameters = True
 
     # Initialize our Trainer
     trainer = Trainer(
