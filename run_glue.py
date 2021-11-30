@@ -44,6 +44,13 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
 
+try:
+    import nsml
+
+    _has_nsml = True
+except ImportError:
+    _has_nsml = False
+    
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.4.0")
@@ -541,7 +548,7 @@ def main():
         if "label" not in test_dataset:
             assert train_dataset is not None, 'Train dataset is None.'
             assert eval_dataset is not None, 'Eval dataset is None.'
-            train_test_split = train_dataset.train_test_split(test_size=0.3)
+            train_test_split = train_dataset.train_test_split(test_size=1000)
 
             test_dataset = eval_dataset
             train_dataset = train_test_split['train']
@@ -624,7 +631,7 @@ def main():
 
         trainer.save_model()  # Saves the tokenizer too for easy upload
 
-        # trainer.log_metrics("train", metrics)
+        trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
         trainer.save_state()
 
