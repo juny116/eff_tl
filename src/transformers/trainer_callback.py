@@ -15,7 +15,7 @@
 """
 Callbacks to use with the Trainer class and customize the training loop.
 """
-
+import collections
 import dataclasses
 import json
 from dataclasses import dataclass
@@ -42,7 +42,7 @@ class TrainerState:
 
         In all this class, one step is to be understood as one update step. When using gradient accumulation, one
         update step may require several forward and backward passes: if you use :obj:`gradient_accumulation_steps=n`,
-        then one update step requires going throuch `n` batches.
+        then one update step requires going through `n` batches.
 
     Args:
         epoch (:obj:`float`, `optional`):
@@ -92,14 +92,14 @@ class TrainerState:
             self.log_history = []
 
     def save_to_json(self, json_path: str):
-        """ Save the content of this instance in JSON format inside :obj:`json_path`."""
+        """Save the content of this instance in JSON format inside :obj:`json_path`."""
         json_string = json.dumps(dataclasses.asdict(self), indent=2, sort_keys=True) + "\n"
         with open(json_path, "w", encoding="utf-8") as f:
             f.write(json_string)
 
     @classmethod
     def load_from_json(cls, json_path: str):
-        """ Create an instance from the content of :obj:`json_path`."""
+        """Create an instance from the content of :obj:`json_path`."""
         with open(json_path, "r", encoding="utf-8") as f:
             text = f.read()
         return cls(**json.loads(text))
@@ -141,15 +141,15 @@ class TrainerControl:
     should_log: bool = False
 
     def _new_training(self):
-        """ Internal method that resets the variable for a new training. """
+        """Internal method that resets the variable for a new training."""
         self.should_training_stop = False
 
     def _new_epoch(self):
-        """ Internal method that resets the variable for a new epoch. """
+        """Internal method that resets the variable for a new epoch."""
         self.should_epoch_stop = False
 
     def _new_step(self):
-        """ Internal method that resets the variable for a new step. """
+        """Internal method that resets the variable for a new step."""
         self.should_save = False
         self.should_evaluate = False
         self.should_log = False
@@ -175,9 +175,9 @@ class TrainerCallback:
             The optimizer used for the training steps.
         lr_scheduler (:obj:`torch.optim.lr_scheduler.LambdaLR`):
             The scheduler used for setting the learning rate.
-        train_dataloader (:obj:`torch.utils.data.dataloader.DataLoader`, `optional`):
+        train_dataloader (:obj:`torch.utils.data.DataLoader`, `optional`):
             The current dataloader used for training.
-        eval_dataloader (:obj:`torch.utils.data.dataloader.DataLoader`, `optional`):
+        eval_dataloader (:obj:`torch.utils.data.DataLoader`, `optional`):
             The current dataloader used for training.
         metrics (:obj:`Dict[str, float]`):
             The metrics computed by the last evaluation phase.
@@ -242,6 +242,12 @@ class TrainerCallback:
         """
         pass
 
+    def on_substep_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        """
+        Event called at the end of an substep during gradient accumulation.
+        """
+        pass
+
     def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
         """
         Event called at the end of a training step. If using gradient accumulation, one training step might take
@@ -275,7 +281,7 @@ class TrainerCallback:
 
 
 class CallbackHandler(TrainerCallback):
-    """ Internal class that just calls the list of callbacks in order. """
+    """Internal class that just calls the list of callbacks in order."""
 
     def __init__(self, callbacks, model, tokenizer, optimizer, lr_scheduler):
         self.callbacks = []
@@ -289,7 +295,7 @@ class CallbackHandler(TrainerCallback):
         self.eval_dataloader = None
 
         if not any(isinstance(cb, DefaultFlowCallback) for cb in self.callbacks):
-            logger.warn(
+            logger.warning(
                 "The Trainer will not work properly if you don't have a `DefaultFlowCallback` in its callbacks. You\n"
                 + "should add one before training with `trainer.add_callback(DefaultFlowCallback). The current list of"
                 + "callbacks is\n:"
@@ -300,7 +306,7 @@ class CallbackHandler(TrainerCallback):
         cb = callback() if isinstance(callback, type) else callback
         cb_class = callback if isinstance(callback, type) else callback.__class__
         if cb_class in [c.__class__ for c in self.callbacks]:
-            logger.warn(
+            logger.warning(
                 f"You are adding a {cb_class} to the callbacks of this Trainer, but there is already one. The current"
                 + "list of callbacks is\n:"
                 + self.callback_list
@@ -355,6 +361,9 @@ class CallbackHandler(TrainerCallback):
         control.should_save = False
         return self.call_event("on_step_begin", args, state, control)
 
+    def on_substep_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl):
+        return self.call_event("on_substep_end", args, state, control)
+
     def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl):
         return self.call_event("on_step_end", args, state, control)
 
@@ -403,23 +412,16 @@ class DefaultFlowCallback(TrainerCallback):
         # Log
         if state.global_step == 1 and args.logging_first_step:
             control.should_log = True
-        if (
-            args.logging_strategy == IntervalStrategy.STEPS
-            and args.logging_steps > 0
-            and state.global_step % args.logging_steps == 0
-        ):
+        if args.logging_strategy == IntervalStrategy.STEPS and state.global_step % args.logging_steps == 0:
             control.should_log = True
 
         # Evaluate
         if args.evaluation_strategy == IntervalStrategy.STEPS and state.global_step % args.eval_steps == 0:
             control.should_evaluate = True
-            if args.load_best_model_at_end:
-                control.should_save = True
 
         # Save
         if (
-            not args.load_best_model_at_end
-            and args.save_strategy == IntervalStrategy.STEPS
+            args.save_strategy == IntervalStrategy.STEPS
             and args.save_steps > 0
             and state.global_step % args.save_steps == 0
         ):
@@ -439,8 +441,6 @@ class DefaultFlowCallback(TrainerCallback):
         # Evaluate
         if args.evaluation_strategy == IntervalStrategy.EPOCH:
             control.should_evaluate = True
-            if args.load_best_model_at_end:
-                control.should_save = True
 
         # Save
         if args.save_strategy == IntervalStrategy.EPOCH:
@@ -469,7 +469,7 @@ class ProgressCallback(TrainerCallback):
             self.current_step = state.global_step
 
     def on_prediction_step(self, args, state, control, eval_dataloader=None, **kwargs):
-        if state.is_local_process_zero:
+        if state.is_local_process_zero and isinstance(eval_dataloader.dataset, collections.abc.Sized):
             if self.prediction_bar is None:
                 self.prediction_bar = tqdm(total=len(eval_dataloader), leave=self.training_bar is None)
             self.prediction_bar.update(1)

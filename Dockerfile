@@ -2,8 +2,8 @@
 # reference: https://github.com/jehyunlee/docker/blob/master/00_base/kr/Dockerfile
 
 # from
-FROM pytorch/pytorch:latest
-LABEL maintainer="Jamie Seol <theeluwin@gmail.com>"
+FROM pytorch/pytorch:1.9.0-cuda10.2-cudnn7-runtime
+LABEL maintainer="Junyeob Kim <theeluwin@gmail.com>"
 
 # apt source
 RUN sed -i 's/archive.ubuntu.com/mirror.kakao.com/g' /etc/apt/sources.list && \
@@ -39,6 +39,8 @@ RUN mkdir -p /root/.cache/torch/checkpoints/ && \
 RUN mkdir -p /workspace
 WORKDIR /workspace
 
+COPY . /workspace/
+RUN pip install -e .
 # install python packages: for requirements.txt, uncomment the next two
 # COPY requirements.txt /workspace/
 # RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt

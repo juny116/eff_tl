@@ -51,6 +51,12 @@ try:
 except ImportError:
     _has_nsml = False
     
+def mean_pooling(model_output, attention_mask):
+    token_embeddings = model_output[0]  # First element of model_output contains all token embeddings
+    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
+    sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+    return sum_embeddings / sum_mask
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.4.0")
@@ -666,22 +672,28 @@ def main():
             test_datasets.append(datasets["test_mismatched"])
 
         for test_dataset, task in zip(test_datasets, tasks):
-            # Removing the `label` columns because it contains -1 and Trainer won't like that.
-            test_dataset.remove_columns_("label")
-            predictions = trainer.predict(test_dataset=test_dataset).predictions
-            predictions = np.squeeze(predictions) if is_regression else np.argmax(predictions, axis=1)
+            metrics = trainer.evaluate(eval_dataset=test_dataset)
+            max_test_samples = data_args.max_test_samples if data_args.max_test_samples is not None else len(test_dataset)
+            metrics["test_samples"] = min(max_test_samples, len(test_dataset))
 
-            output_test_file = os.path.join(training_args.output_dir, f"test_results_{task}.txt")
-            if trainer.is_world_process_zero():
-                with open(output_test_file, "w") as writer:
-                    logger.info(f"***** Test results {task} *****")
-                    writer.write("index\tprediction\n")
-                    for index, item in enumerate(predictions):
-                        if is_regression:
-                            writer.write(f"{index}\t{item:3.3f}\n")
-                        else:
-                            item = label_list[item]
-                            writer.write(f"{index}\t{item}\n")
+            trainer.log_metrics("test", metrics)
+            trainer.save_metrics("test", metrics)
+            # Removing the `label` columns because it contains -1 and Trainer won't like that.
+            # test_dataset.remove_columns_("label")
+            # predictions = trainer.predict(test_dataset=test_dataset).predictions
+            # predictions = np.squeeze(predictions) if is_regression else np.argmax(predictions, axis=1)
+
+            # output_test_file = os.path.join(training_args.output_dir, f"test_results_{task}.txt")
+            # if trainer.is_world_process_zero():
+            #     with open(output_test_file, "w") as writer:
+            #         logger.info(f"***** Test results {task} *****")
+            #         writer.write("index\tprediction\n")
+            #         for index, item in enumerate(predictions):
+            #             if is_regression:
+            #                 writer.write(f"{index}\t{item:3.3f}\n")
+            #             else:
+            #                 item = label_list[item]
+            #                 writer.write(f"{index}\t{item}\n")
 
 
 def _mp_fn(index):

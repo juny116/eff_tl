@@ -21,9 +21,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn import CrossEntropyLoss, MSELoss
+from torch import nn
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 from ...file_utils import (
     ModelOutput,
@@ -67,7 +66,7 @@ def build_tf_to_pytorch_map(model, config):
         for i, (out_l, proj_l, tie_proj) in enumerate(
             zip(model.crit.out_layers, model.crit.out_projs, config.tie_projs)
         ):
-            layer_str = "transformer/adaptive_softmax/cutoff_%d/" % i
+            layer_str = f"transformer/adaptive_softmax/cutoff_{i}/"
             if config.tie_word_embeddings:
                 tf_to_pt_map.update({layer_str + "b": out_l.bias})
             else:
@@ -81,12 +80,12 @@ def build_tf_to_pytorch_map(model, config):
 
     # Embeddings
     for i, (embed_l, proj_l) in enumerate(zip(model.word_emb.emb_layers, model.word_emb.emb_projs)):
-        layer_str = "transformer/adaptive_embed/cutoff_%d/" % i
+        layer_str = f"transformer/adaptive_embed/cutoff_{i}/"
         tf_to_pt_map.update({layer_str + "lookup_table": embed_l.weight, layer_str + "proj_W": proj_l})
 
     # Transformer blocks
     for i, b in enumerate(model.layers):
-        layer_str = "transformer/layer_%d/" % i
+        layer_str = f"transformer/layer_{i}/"
         tf_to_pt_map.update(
             {
                 layer_str + "rel_attn/LayerNorm/gamma": b.dec_attn.layer_norm.weight,
@@ -135,7 +134,7 @@ def load_tf_weights_in_transfo_xl(model, config, tf_path):
     init_vars = tf.train.list_variables(tf_path)
     tf_weights = {}
     for name, shape in init_vars:
-        logger.info("Loading TF weight {} with shape {}".format(name, shape))
+        logger.info(f"Loading TF weight {name} with shape {shape}")
         array = tf.train.load_variable(tf_path, name)
         tf_weights[name] = array
 
@@ -156,7 +155,7 @@ def load_tf_weights_in_transfo_xl(model, config, tf_path):
                 except AssertionError as e:
                     e.args += (p_i.shape, arr_i.shape)
                     raise
-                logger.info("Initialize PyTorch weight {} for layer {}".format(name, i))
+                logger.info(f"Initialize PyTorch weight {name} for layer {i}")
                 p_i.data = torch.from_numpy(arr_i)
         else:
             try:
@@ -166,13 +165,13 @@ def load_tf_weights_in_transfo_xl(model, config, tf_path):
             except AssertionError as e:
                 e.args += (pointer.shape, array.shape)
                 raise
-            logger.info("Initialize PyTorch weight {}".format(name))
+            logger.info(f"Initialize PyTorch weight {name}")
             pointer.data = torch.from_numpy(array)
         tf_weights.pop(name, None)
         tf_weights.pop(name + "/Adam", None)
         tf_weights.pop(name + "/Adam_1", None)
 
-    logger.info("Weights not copied to PyTorch model: {}".format(", ".join(tf_weights.keys())))
+    logger.info(f"Weights not copied to PyTorch model: {', '.join(tf_weights.keys())}")
     return model
 
 
@@ -344,7 +343,7 @@ class RelPartialLearnableMultiHeadAttn(nn.Module):
                     attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, None], -1e30).type_as(attn_score)
 
         # [qlen x klen x bsz x n_head]
-        attn_prob = F.softmax(attn_score, dim=1)
+        attn_prob = nn.functional.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
 
         # Mask heads if we want to
@@ -434,7 +433,7 @@ class AdaptiveEmbedding(nn.Module):
         if self.div_val == 1:
             embed = self.emb_layers[0](inp)
             if self.d_proj != self.d_embed:
-                embed = F.linear(embed, self.emb_projs[0])
+                embed = nn.functional.linear(embed, self.emb_projs[0])
         else:
             param = next(self.parameters())
             inp_flat = inp.view(-1)
@@ -450,7 +449,7 @@ class AdaptiveEmbedding(nn.Module):
 
                 inp_i = inp_flat.index_select(0, indices_i) - l_idx
                 emb_i = self.emb_layers[i](inp_i)
-                emb_i = F.linear(emb_i, self.emb_projs[i])
+                emb_i = nn.functional.linear(emb_i, self.emb_projs[i])
 
                 emb_flat.index_copy_(0, indices_i, emb_i)
 
@@ -820,7 +819,8 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
         else:  # learnable embeddings and absolute embeddings
             raise NotImplementedError  # Removed these to avoid maintaining dead code - They are not used in our pretrained checkpoint
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_input_embeddings(self):
         return self.word_emb
@@ -872,7 +872,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(TRANSFO_XL_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TransfoXLModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1022,7 +1022,8 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
             config.vocab_size, config.d_embed, config.d_model, config.cutoffs, div_val=config.div_val
         )
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def tie_weights(self):
         """
@@ -1053,7 +1054,7 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(TRANSFO_XL_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TransfoXLLMHeadModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1141,8 +1142,8 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
     @staticmethod
     def _reorder_cache(mems: List[torch.Tensor], beam_idx: torch.Tensor) -> List[torch.Tensor]:
         """
-        This function is used to re-order the :obj:`mems` cache if :meth:`~transformers.PretrainedModel.beam_search` or
-        :meth:`~transformers.PretrainedModel.beam_sample` is called. This is required to match :obj:`mems` with the
+        This function is used to re-order the :obj:`mems` cache if :meth:`~transformers.PreTrainedModel.beam_search` or
+        :meth:`~transformers.PreTrainedModel.beam_sample` is called. This is required to match :obj:`mems` with the
         correct beam_idx at every generation step.
         """
         return [layer_past.index_select(1, beam_idx.to(layer_past.device)) for layer_past in mems]
@@ -1171,11 +1172,12 @@ class TransfoXLForSequenceClassification(TransfoXLPreTrainedModel):
         self.num_labels = config.num_labels
         self.transformer = TransfoXLModel(config)
         self.score = nn.Linear(config.d_embed, self.num_labels, bias=False)
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(TRANSFO_XL_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TransfoXLSequenceClassifierOutputWithPast,
         config_class=_CONFIG_FOR_DOC,
@@ -1235,13 +1237,26 @@ class TransfoXLForSequenceClassification(TransfoXLPreTrainedModel):
 
         loss = None
         if labels is not None:
-            if self.num_labels == 1:
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+
+            if self.config.problem_type == "regression":
                 loss_fct = MSELoss()
-                loss = loss_fct(pooled_logits.view(-1), labels.to(self.dtype).view(-1))
-            else:
+                if self.num_labels == 1:
+                    loss = loss_fct(pooled_logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(pooled_logits, labels)
+            elif self.config.problem_type == "single_label_classification":
                 loss_fct = CrossEntropyLoss()
                 loss = loss_fct(pooled_logits.view(-1, self.num_labels), labels.view(-1))
-
+            elif self.config.problem_type == "multi_label_classification":
+                loss_fct = BCEWithLogitsLoss()
+                loss = loss_fct(pooled_logits, labels)
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]
             return ((loss,) + output) if loss is not None else output

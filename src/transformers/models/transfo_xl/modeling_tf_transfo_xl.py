@@ -368,7 +368,7 @@ class TFAdaptiveEmbedding(tf.keras.layers.Layer):
                         r_idx - l_idx,
                         d_emb_i,
                         init_std,
-                        name="emb_layers_._{}".format(i),
+                        name=f"emb_layers_._{i}",
                     )
                 )
 
@@ -380,7 +380,7 @@ class TFAdaptiveEmbedding(tf.keras.layers.Layer):
                     shape=(d_emb_i, self.d_proj),
                     initializer=get_initializer(self.init_std),
                     trainable=True,
-                    name="emb_projs_._{}".format(i),
+                    name=f"emb_projs_._{i}",
                 )
             )
 
@@ -467,7 +467,7 @@ class TFTransfoXLMainLayer(tf.keras.layers.Layer):
                         layer_norm_epsilon=config.layer_norm_epsilon,
                         init_std=config.init_std,
                         output_attentions=self.output_attentions,
-                        name="layers_._{}".format(i),
+                        name=f"layers_._{i}",
                     )
                 )
         else:  # learnable embeddings and absolute embeddings
@@ -883,7 +883,7 @@ class TFTransfoXLModel(TFTransfoXLPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(TRANSFO_XL_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TFTransfoXLModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -975,7 +975,7 @@ class TFTransfoXLLMHeadModel(TFTransfoXLPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(TRANSFO_XL_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TFTransfoXLLMHeadModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1091,7 +1091,7 @@ class TFTransfoXLForSequenceClassification(TFTransfoXLPreTrainedModel, TFSequenc
 
     @add_start_docstrings_to_model_forward(TRANSFO_XL_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TFTransfoXLSequenceClassifierOutputWithPast,
         config_class=_CONFIG_FOR_DOC,

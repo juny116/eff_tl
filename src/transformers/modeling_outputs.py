@@ -55,9 +55,10 @@ class BaseModelOutputWithPooling(ModelOutput):
         last_hidden_state (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`):
             Sequence of hidden-states at the output of the last layer of the model.
         pooler_output (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, hidden_size)`):
-            Last layer hidden-state of the first token of the sequence (classification token) further processed by a
-            Linear layer and a Tanh activation function. The Linear layer weights are trained from the next sentence
-            prediction (classification) objective during pretraining.
+            Last layer hidden-state of the first token of the sequence (classification token) after further processing
+            through the layers used for the auxiliary pretraining task. E.g. for BERT-family of models, this returns
+            the classification token after processing through a linear layer and a tanh activation function. The linear
+            layer weights are trained from the next sentence prediction (classification) objective during pretraining.
         hidden_states (:obj:`tuple(torch.FloatTensor)`, `optional`, returned when ``output_hidden_states=True`` is passed or when ``config.output_hidden_states=True``):
             Tuple of :obj:`torch.FloatTensor` (one for the output of the embeddings + one for the output of each layer)
             of shape :obj:`(batch_size, sequence_length, hidden_size)`.
@@ -158,9 +159,10 @@ class BaseModelOutputWithPoolingAndCrossAttentions(ModelOutput):
         last_hidden_state (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`):
             Sequence of hidden-states at the output of the last layer of the model.
         pooler_output (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, hidden_size)`):
-            Last layer hidden-state of the first token of the sequence (classification token) further processed by a
-            Linear layer and a Tanh activation function. The Linear layer weights are trained from the next sentence
-            prediction (classification) objective during pretraining.
+            Last layer hidden-state of the first token of the sequence (classification token) after further processing
+            through the layers used for the auxiliary pretraining task. E.g. for BERT-family of models, this returns
+            the classification token after processing through a linear layer and a tanh activation function. The linear
+            layer weights are trained from the next sentence prediction (classification) objective during pretraining.
         hidden_states (:obj:`tuple(torch.FloatTensor)`, `optional`, returned when ``output_hidden_states=True`` is passed or when ``config.output_hidden_states=True``):
             Tuple of :obj:`torch.FloatTensor` (one for the output of the embeddings + one for the output of each layer)
             of shape :obj:`(batch_size, sequence_length, hidden_size)`.
@@ -343,7 +345,7 @@ class CausalLMOutputWithPast(ModelOutput):
             Language modeling loss (for next-token prediction).
         logits (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, config.vocab_size)`):
             Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-        past_key_values (:obj:`tuple(tupel(torch.FloatTensor))`, `optional`, returned when ``use_cache=True`` is passed or when ``config.use_cache=True``):
+        past_key_values (:obj:`tuple(tuple(torch.FloatTensor))`, `optional`, returned when ``use_cache=True`` is passed or when ``config.use_cache=True``):
             Tuple of :obj:`tuple(torch.FloatTensor)` of length :obj:`config.n_layers`, with each tuple having 2 tensors
             of shape :obj:`(batch_size, num_heads, sequence_length, embed_size_per_head)`)
 
@@ -423,7 +425,7 @@ class SequenceClassifierOutputWithPast(ModelOutput):
             Classification (or regression if config.num_labels==1) loss.
         logits (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, config.num_labels)`):
             Classification (or regression if config.num_labels==1) scores (before SoftMax).
-        past_key_values (:obj:`tuple(tupel(torch.FloatTensor))`, `optional`, returned when ``use_cache=True`` is passed or when ``config.use_cache=True``):
+        past_key_values (:obj:`tuple(tuple(torch.FloatTensor))`, `optional`, returned when ``use_cache=True`` is passed or when ``config.use_cache=True``):
             Tuple of :obj:`tuple(torch.FloatTensor)` of length :obj:`config.n_layers`, with each tuple having 2 tensors
             of shape :obj:`(batch_size, num_heads, sequence_length, embed_size_per_head)`)
 
