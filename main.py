@@ -7,14 +7,12 @@ import random
 from pathlib import Path
 
 import datasets
-from datasets import load_dataset, load_metric
+from datasets import load_dataset, load_metric, DatasetDict
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 import transformers
 from transformers.deepspeed import HfDeepSpeedConfig
-# from accelerate import Accelerator
-from huggingface_hub import Repository
 from transformers import (
     AdamW,
     AutoConfig,
@@ -29,11 +27,9 @@ from transformers import (
 )
 import torch
 import deepspeed
-from transformers.file_utils import get_full_repo_name
-from transformers.utils.versions import require_version
 from torch.utils.data.distributed import DistributedSampler
-from torch.utils.data import SequentialSampler
-import numpy as np
+from torch.utils.tensorboard import SummaryWriter
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +56,16 @@ def parse_args():
         choices=list(task_to_keys.keys()),
     )
     parser.add_argument(
-        "--train_file", type=str, default=None, help="A csv or a json file containing the training data."
+        "--train_file", 
+        type=str, 
+        default=None, 
+        help="A csv or a json file containing the training data."
     )
     parser.add_argument(
-        "--validation_file", type=str, default=None, help="A csv or a json file containing the validation data."
+        "--validation_file", 
+        type=str, 
+        default=None, 
+        help="A csv or a json file containing the validation data."
     )
     parser.add_argument(
         "--max_length",
@@ -86,16 +88,10 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
-        "--per_device_train_batch_size",
+        "--per_device_batch_size",
         type=int,
-        default=1,
+        default=8,
         help="Batch size (per device) for the training dataloader.",
-    )
-    parser.add_argument(
-        "--per_device_eval_batch_size",
-        type=int,
-        default=1,
-        help="Batch size (per device) for the evaluation dataloader.",
     )
     parser.add_argument(
         "--lr",
@@ -103,8 +99,18 @@ def parse_args():
         default=5e-5,
         help="Initial learning rate (after the potential warmup period) to use.",
     )
-    parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay to use.")
-    parser.add_argument("--num_train_epochs", type=int, default=3, help="Total number of training epochs to perform.")
+    parser.add_argument(
+        "--weight_decay", 
+        type=float, 
+        default=0.0, 
+        help="Weight decay to use."
+    )
+    parser.add_argument(
+        "--num_train_epochs", 
+        type=int, 
+        default=20, 
+        help="Total number of training epochs to perform."
+    )
     parser.add_argument(
         "--max_train_steps",
         type=int,
@@ -125,16 +131,79 @@ def parse_args():
         choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"],
     )
     parser.add_argument(
-        "--num_warmup_steps", type=int, default=0, help="Number of steps for the warmup in the lr scheduler."
+        "--num_warmup_steps", 
+        type=int, 
+        default=0, 
+        help="Number of steps for the warmup in the lr scheduler."
     )
-    parser.add_argument("--output_dir", type=str, default=None, help="Where to store the final model.")
-    parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
-    parser.add_argument('--ds_config', default='ds_config.json', type=str,
-                    help='deepspeed config')
-    parser.add_argument('--local_rank', default=0, type=int,
-                        help='node rank for distributed training')
+    parser.add_argument(
+        "--output_dir", 
+        type=str, 
+        default=None, 
+        help="Where to store the final model."
+    )
+    parser.add_argument(
+        "--seed", 
+        type=int, 
+        default=None, 
+        help="A seed for reproducible training."
+    )
+    parser.add_argument(
+        '--ds_config', 
+        default='ds_config.json', 
+        type=str, 
+        help='deepspeed config'
+    )
+    parser.add_argument(
+        '--local_rank', 
+        default=0, 
+        type=int, 
+        help='node rank for distributed training'
+    )
+    parser.add_argument(
+        '--apply_lora', 
+        default=False, 
+        action="store_true",
+        help='apply LoRA params'
+    )
+    parser.add_argument(
+        '--lora_alpha', 
+        default=16, 
+        type=int, 
+        help='LoRA alpha'
+    )
+    parser.add_argument(
+        '--lora_r', 
+        default=8, 
+        type=int, 
+        help='LoRA r'
+    )
+    parser.add_argument(
+        '--apply_prefix', 
+        default=False, 
+        action="store_true",
+        help='apply prefix tuning params'
+    )
+    parser.add_argument(
+        '--num_prefix', 
+        default=10, 
+        type=int, 
+        help='number of prefix to append per layer'
+    )
+    parser.add_argument(
+        '--mid_dim', 
+        default=128, 
+        type=int, 
+        help='reparameterization dim'
+    )
+    parser.add_argument(
+        '--apply_adapter', 
+        default=False, 
+        action="store_true",
+        help='apply adapter tuning params'
+    )
     args = parser.parse_args()
-
+    
     # Sanity checks
     if args.task_name is None and args.train_file is None and args.validation_file is None:
         raise ValueError("Need either a task name or a training/validation file.")
@@ -153,17 +222,16 @@ def main():
     args = parse_args()
     dschf = HfDeepSpeedConfig(args.ds_config)
     deepspeed.init_distributed()
-    # engine = deepspeed.initialize(model=model, config_params=ds_config)
+    args.world_size = torch.distributed.get_world_size()
+
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
         level=logging.INFO,
     )
-    # logger.info(accelerator.state)
 
     # Setup logging, we only want one process per machine to log things on the screen.
-    # accelerator.is_local_main_process is only True for one process per machine.
     logger.setLevel(logging.INFO if args.local_rank == 0 else logging.ERROR)
     if args.local_rank == 0:
         datasets.utils.logging.set_verbosity_warning()
@@ -176,26 +244,28 @@ def main():
     if args.seed is not None:
         set_seed(args.seed)
 
-    # Handle the repository creation
+    # Handle the repository creation & SummaryWriter
     if args.local_rank == 0:
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
-
-    # Get the datasets: you can either provide your own CSV/JSON training and evaluation files (see below)
-    # or specify a GLUE benchmark task (the dataset will be downloaded automatically from the datasets Hub).
-
-    # For CSV/JSON files, this script will use as labels the column called 'label' and as pair of sentences the
-    # sentences in columns called 'sentence1' and 'sentence2' if such column exists or the first two columns not named
-    # label if at least two columns are provided.
-
-    # If the CSVs/JSONs contain only one non-label column, the script does single sentence classification on this
-    # single column. You can easily tweak this behavior (see below)
+        writer = SummaryWriter(args.output_dir)
 
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
     if args.task_name is not None:
         # Downloading and loading a dataset from the hub.
-        raw_datasets = load_dataset("glue", args.task_name)
+        raw_datasets = DatasetDict()
+        max_train_sample = None
+        if max_train_sample is not None:
+            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{max_train_sample}]')
+        else:
+            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train')
+        # Since glue test set is not opened, use 1K train as validation and original validation as test
+        train_test_split = raw_train_dataset.train_test_split(test_size=1000)
+        raw_datasets['train'] = train_test_split['train']
+        raw_datasets['validation'] = train_test_split['test']
+        # TODO: add mnli case
+        raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
     else:
         # Loading the dataset from local csv or json file.
         data_files = {}
@@ -217,13 +287,16 @@ def main():
         num_labels = len(label_list)
 
     # Load pretrained model and tokenizer
-    #
-    # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
-    # download model & vocab.
-
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
-    tokenizer.pad_token = tokenizer.unk_token
-    config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id)
+    # For gpt-2
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.unk_token
+    # TODO: only inject pad_token_id in case of GPT
+    config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, 
+        finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id,
+        apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
+        apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim
+    )
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model_name_or_path,
         from_tf=bool(".ckpt" in args.model_name_or_path),
@@ -232,7 +305,6 @@ def main():
 
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
-
 
     # Some models have set the order of the labels to use, so let's make sure we do use it.
     label_to_id = None
@@ -283,7 +355,6 @@ def main():
                 result["labels"] = examples["label"]
         return result
 
-    # with accelerator.main_process_first():
     if args.local_rank != 0:
         torch.distributed.barrier()
     processed_datasets = raw_datasets.map(
@@ -297,53 +368,56 @@ def main():
 
     train_dataset = processed_datasets["train"]
     eval_dataset = processed_datasets["validation_matched" if args.task_name == "mnli" else "validation"]
+    test_dataset = processed_datasets["test"]
 
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 1):
         logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+    
+    trainable_param_names = []
+    if args.apply_lora:
+        trainable_param_names.append('lora')
+    if args.apply_prefix:
+        trainable_param_names.append('prefix')
+    if args.apply_adapter:
+        trainable_param_names.append('adapter')
 
-    # DataLoaders creation:
-    if args.pad_to_max_length:
-        data_collator = default_data_collator
-    else:
-        data_collator = DataCollatorWithPadding(tokenizer)
+    # if no trainable_param_names -> full fine tune
+    if len(trainable_param_names) > 0:
+        for name, param in model.named_parameters():
+            if name.startswith('deberta') or name.startswith('roberta') or name.startswith('transformer'):
+                param.requires_grad = False
+                for trainable_param_name in trainable_param_names:
+                    if trainable_param_name in name:
+                        if args.local_rank == 0:
+                            logger.info(f'>> TRAIN {name} {param.shape} -> {param.numel()}')
+                        param.requires_grad = True
+            else:
+                if args.local_rank == 0:
+                    logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
+                param.requires_grad = True
 
-    train_sampler = DistributedSampler(train_dataset)
-    train_dataloader = DataLoader(
-            train_dataset, sampler=train_sampler, collate_fn=data_collator, batch_size=args.per_device_train_batch_size)
-    eval_sampler = DistributedSampler(eval_dataset)
-    eval_dataloader = DataLoader(
-            eval_dataset, sampler=eval_sampler, collate_fn=data_collator, batch_size=args.per_device_train_batch_size)
-
-    # Optimizer
     # Split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
         {
-            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and p.requires_grad==True],
             "weight_decay": args.weight_decay,
         },
         {
-            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and p.requires_grad==True],
             "weight_decay": 0.0,
         },
     ]
+
+    if args.local_rank == 0:
+        num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        num_total_params = sum(p.numel() for p in model.parameters())
+        logger.info(f'trainable params {num_trainable_params} / total params {num_total_params} = ratio {100 * num_trainable_params/num_total_params} ')
+
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr)
 
-    model, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
-                                                            # training_data=processed_datasets["train"], collate_fn=data_collator)
-                                                            
-    # Prepare everything with our `accelerator`.
-
-    # Note -> the training dataloader needs to be prepared before we grab his length below (cause its length will be
-    # shorter in multiprocess)
-
-    # Scheduler and math around the number of training steps.
-    # num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
-    # if args.max_train_steps is None:
-    #     args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
-    # else:
-    #     args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
+    # No lr scheduler for now
 
     # lr_scheduler = get_scheduler(
     #     name=args.lr_scheduler_type,
@@ -352,41 +426,97 @@ def main():
     #     num_training_steps=args.max_train_steps,
     # )
 
+    model, optimizer, _, _ = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
+
+    args.per_device_batch_size = model.train_micro_batch_size_per_gpu()
+    args.gradient_accumulation_steps = model.gradient_accumulation_steps()
+
+    # DataLoaders creation:
+    if args.pad_to_max_length:
+        data_collator = default_data_collator
+    else:
+        data_collator = DataCollatorWithPadding(tokenizer)
+
+    train_sampler = DistributedSampler(train_dataset)
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size)
+    eval_sampler = DistributedSampler(eval_dataset)
+    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)
+    test_sampler = DistributedSampler(test_dataset)
+    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)       
+       
+     # math around the number of training steps.
+    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    if args.max_train_steps is None:
+        args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
+    else:
+        args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
+
     # Get the metric function
     if args.task_name is not None:
-        metric = load_metric("glue", args.task_name)
-        metric = load_metric('glue', args.task_name, num_process=4, process_id=args.local_rank)
+        metric = load_metric('glue', args.task_name, num_process=args.world_size, process_id=args.local_rank)
     else:
-        metric = load_metric("accuracy")
+        metric = load_metric("accuracy", num_process=args.world_size, process_id=args.local_rank)
 
     # Train!
-    # total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-
+    total_batch_size = args.per_device_batch_size * args.world_size * args.gradient_accumulation_steps
     logger.info("***** Running training *****")
-    # logger.info(f"  Num examples = {len(train_dataset)}")
-    # logger.info(f"  Num Epochs = {args.num_train_epochs}")
-    # logger.info(f"  Instantaneous batch size per device = {args.per_device_train_batch_size}")
-    # logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-    # logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
-    # logger.info(f"  Total optimization steps = {args.max_train_steps}")
-    # Only show the progress bar once on each machine.
-    # progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
-    completed_steps = 0
-    # for epoch in range(args.num_train_epochs):
-    model.train()
-    for step, batch in enumerate(train_dataloader):
-        #forward() method
-        batch = {k: v.cuda() for k, v in batch.items()}
-        outputs = model(**batch)
-        loss = outputs.loss
-        # loss = loss / args.gradient_accumulation_steps
-        model.backward(loss)
-        # optimizer.step()
-        # lr_scheduler.step()
-        model.step()
+    logger.info(f"  Num examples = {len(train_dataset)}")
+    logger.info(f"  Num Epochs = {args.num_train_epochs}")
+    logger.info(f"  Instantaneous batch size per device = {args.per_device_batch_size}")
+    logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+    logger.info(f"  World Size = {args.world_size}")
+    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    logger.info(f"  Random Seed = {args.seed}")
+    logger.info(f"  Total optimization steps = {args.max_train_steps}")
 
-    model.eval()
-    for step, batch in enumerate(eval_dataloader):
+
+    # Only show the progress bar once on each machine.
+    progress_bar = tqdm(range(args.max_train_steps), disable=(args.local_rank != 0))
+    completed_steps = 0
+    best_acc = 0
+    best_model_step = 0
+    for epoch in range(args.num_train_epochs):
+        model.train()
+        for step, batch in enumerate(train_dataloader):
+            batch = {k: v.cuda() for k, v in batch.items()}
+            outputs = model(**batch)
+            loss = outputs.loss
+            loss = loss / args.gradient_accumulation_steps
+            if args.local_rank == 0:
+                writer.add_scalar('Train/Loss', loss, model.global_steps)
+            model.backward(loss)
+            if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
+                # model step manages optimizer
+                model.step()
+                progress_bar.update(1)
+                completed_steps += 1
+
+            # TODO: MUST FIX!!! in case of max train step, same evaluation will run until end of max epoch
+            if completed_steps >= args.max_train_steps:
+                break
+
+        model.eval()
+        for step, batch in enumerate(eval_dataloader):
+            with torch.no_grad():
+                batch = {k: v.cuda() for k, v in batch.items()}
+                outputs = model(**batch)
+                predictions = outputs.logits.argmax(dim=-1)
+                metric.add_batch(
+                    predictions=predictions,
+                    references=batch["labels"],
+                )
+        eval_metric = metric.compute()
+        model.save_checkpoint(args.output_dir)
+        if args.local_rank == 0:
+            if eval_metric['accuracy'] > best_acc:
+                best_acc = eval_metric['accuracy']
+                best_model_step = model.global_steps
+            writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model.global_steps)
+            logger.info(f"{eval_metric}")
+
+    # load best dev model
+    model.load_checkpoint(args.output_dir, f'global_step{best_model_step}')
+    for step, batch in enumerate(test_dataloader):
         with torch.no_grad():
             batch = {k: v.cuda() for k, v in batch.items()}
             outputs = model(**batch)
@@ -395,67 +525,10 @@ def main():
                 predictions=predictions,
                 references=batch["labels"],
             )
-    eval_metric = metric.compute()
-    logger.info(f"{eval_metric}")
-
-    return
-    for epoch in range(args.num_train_epochs):
-        model.train()
-        for step, batch in enumerate(train_dataloader):
-            outputs = model(**batch)
-            loss = outputs.loss
-            loss = loss / args.gradient_accumulation_steps
-            accelerator.backward(loss)
-            if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
-                progress_bar.update(1)
-                completed_steps += 1
-
-            if completed_steps >= args.max_train_steps:
-                break
-
-        model.eval()
-        for step, batch in enumerate(eval_dataloader):
-            outputs = model(**batch)
-            predictions = outputs.logits.argmax(dim=-1) if not is_regression else outputs.logits.squeeze()
-            metric.add_batch(
-                predictions=accelerator.gather(predictions),
-                references=accelerator.gather(batch["labels"]),
-            )
-
-        eval_metric = metric.compute()
-        logger.info(f"epoch {epoch}: {eval_metric}")
-
-
-    if args.output_dir is not None:
-        accelerator.wait_for_everyone()
-        unwrapped_model = accelerator.unwrap_model(model)
-        unwrapped_model.save_pretrained(args.output_dir, save_function=accelerator.save)
-        if accelerator.is_main_process:
-            tokenizer.save_pretrained(args.output_dir)
-
-    if args.task_name == "mnli":
-        # Final evaluation on mismatched validation set
-        eval_dataset = processed_datasets["validation_mismatched"]
-        eval_dataloader = DataLoader(
-            eval_dataset, collate_fn=data_collator, batch_size=args.per_device_eval_batch_size
-        )
-        eval_dataloader = accelerator.prepare(eval_dataloader)
-
-        model.eval()
-        for step, batch in enumerate(eval_dataloader):
-            outputs = model(**batch)
-            predictions = outputs.logits.argmax(dim=-1)
-            metric.add_batch(
-                predictions=accelerator.gather(predictions),
-                references=accelerator.gather(batch["labels"]),
-            )
-
-        eval_metric = metric.compute()
-        logger.info(f"mnli-mm: {eval_metric}")
-
+    test_metric = metric.compute()
+    if args.local_rank == 0:
+        writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
+        logger.info(f"TEST results {test_metric}")
 
 if __name__ == "__main__":
     main()

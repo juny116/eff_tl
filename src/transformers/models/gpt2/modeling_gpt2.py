@@ -58,6 +58,8 @@ from ...utils import logging
 from ...utils.model_parallel_utils import assert_device_map, get_device_map
 from .configuration_gpt2 import GPT2Config
 
+import loralib as lora
+from transformers.models.adapter import Adapter
 
 logger = logging.get_logger(__name__)
 
@@ -163,10 +165,21 @@ class GPT2Attention(nn.Module):
         self.reorder_and_upcast_attn = config.reorder_and_upcast_attn
 
         if self.is_cross_attention:
+            # Lora not implemented
             self.c_attn = Conv1D(2 * self.embed_dim, self.embed_dim)
             self.q_attn = Conv1D(self.embed_dim, self.embed_dim)
         else:
-            self.c_attn = Conv1D(3 * self.embed_dim, self.embed_dim)
+            if config.apply_lora:
+                self.c_attn = Conv1D(3 * self.embed_dim, self.embed_dim)
+                self.c_attn = lora.MergedLinear(
+                                    self.embed_dim, self.embed_dim * 3, 
+                                    r=config.lora_r, 
+                                    lora_alpha=config.lora_alpha,
+                                    enable_lora=[True, False, True], 
+                                    fan_in_fan_out=True,
+                                    merge_weights=False)
+            else:
+                self.c_attn = Conv1D(3 * self.embed_dim, self.embed_dim)
         self.c_proj = Conv1D(self.embed_dim, self.embed_dim)
 
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
@@ -377,6 +390,11 @@ class GPT2Block(nn.Module):
             self.crossattention = GPT2Attention(config, is_cross_attention=True)
             self.ln_cross_attn = nn.LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
 
+        if config.apply_adapter:
+            if config.adapter_type == 'houlsby':
+                self.attention_adapter = Adapter(hidden_size, config.adapter_size, 'swish')
+            self.output_adapter = Adapter(config.hidden_size, config.adapter_size, 'swish' if config.adapter_type == 'houlsby' else 'relu')
+
         self.mlp = GPT2MLP(inner_dim, config)
 
     def forward(
@@ -403,7 +421,10 @@ class GPT2Block(nn.Module):
         attn_output = attn_outputs[0]  # output_attn: a, present, (attentions)
         outputs = attn_outputs[1:]
         # residual connection
-        hidden_states = attn_output + residual
+        if hasattr(self, 'attention_adapter'):
+            hidden_states = self.attention_adapter(attn_output, residual=residual)
+        else:
+            hidden_states = attn_output + residual
 
         if encoder_hidden_states is not None:
             # add one self-attention block for cross-attention
@@ -431,7 +452,10 @@ class GPT2Block(nn.Module):
         hidden_states = self.ln_2(hidden_states)
         feed_forward_hidden_states = self.mlp(hidden_states)
         # residual connection
-        hidden_states = residual + feed_forward_hidden_states
+        if hasattr(self, 'output_adapter'):
+            hidden_states = self.output_adapter(feed_forward_hidden_states, residual=residual)
+        else:
+            hidden_states = residual + feed_forward_hidden_states
 
         if use_cache:
             outputs = (hidden_states,) + outputs
@@ -677,6 +701,22 @@ class GPT2Model(GPT2PreTrainedModel):
         self.h = nn.ModuleList([GPT2Block(config, layer_idx=i) for i in range(config.num_hidden_layers)])
         self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
+        if config.apply_prefix:
+            self.n_layer = config.num_hidden_layers
+            self.n_head = config.num_attention_heads
+            self.n_embd_per_head = self.embed_dim // self.n_head
+
+            self.prefix_tokens = torch.arange(config.num_prefix).long()
+            self.prefix_mask = torch.ones(config.num_prefix).long()
+            self.prefix_wte = nn.Embedding(config.num_prefix, self.embed_dim)
+            # reparameterization
+            # (batch, embd) -> (batch, mid_dim) -> Tanh -> (batch, n_layer * embd * 2)
+            # split into 2 for k/v
+            self.prefix_trans = nn.Sequential(
+                    nn.Linear(self.embed_dim, config.mid_dim),
+                    nn.Tanh(),
+                    nn.Linear(config.mid_dim, config.num_hidden_layers * 2 * self.embed_dim))
+
         # Model parallel
         self.model_parallel = False
         self.device_map = None
@@ -684,6 +724,29 @@ class GPT2Model(GPT2PreTrainedModel):
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    # for prefix-tuning
+    def get_prefix(self, batch_size:int):
+        assert self.config.apply_prefix, 'get_prefix() method is only used for prefix-tuning. Set apply_prefix=True to use prefix-tuning.'
+        # shape : (num_prefix, ) -> (1, num_prefix) -> (batch, num_prefix)
+        prefix_tokens = self.prefix_tokens.unsqueeze(0).expand(batch_size, -1).to(self.device)
+        # shape : (batch, num_prefix, embedding)
+        prefix_embedding = self.prefix_wte(prefix_tokens)
+        # shape : (batch, num_prefix, num_layer * embedding * 2)
+        prefix_embedding = self.prefix_trans(prefix_embedding)
+        batch_size, num_prefix, _ = prefix_embedding.shape
+
+        # shape : (batch, num_prefix, num_layer * 2, num_head, embedding_dim_per_head)
+        prefix_embedding = prefix_embedding.view(batch_size, num_prefix, self.n_layer * 2, self.n_head, self.n_embd_per_head)
+        prefix_embedding = self.drop(prefix_embedding)
+        # shape : (num_layer * 2, batch, num_head, num_prefix, embedding_dim_per_head)
+        prefix_embedding = prefix_embedding.permute([2, 0, 3, 1, 4])
+
+        # shape : [(num_layer, batch, num_head, num_prefix, embedding_dim_per_head) * 2] -> for key/value
+        prefix_embeddings = prefix_embedding.split(2)
+
+        # List[torch.Tensor]
+        return prefix_embeddings
 
     @add_start_docstrings(PARALLELIZE_DOCSTRING)
     def parallelize(self, device_map=None):
@@ -783,6 +846,10 @@ class GPT2Model(GPT2PreTrainedModel):
         if past_key_values is None:
             past_length = 0
             past_key_values = tuple([None] * len(self.h))
+            # for prefix-tuning
+            if self.config.apply_prefix:
+                # shape : [(2, batch, num_head, num_prefix, embedding_dim_per_head) * num_layer] -> for key/value
+                past_key_values = self.get_prefix(batch_size)
         else:
             past_length = past_key_values[0][0].size(-2)
         if position_ids is None:
@@ -794,6 +861,9 @@ class GPT2Model(GPT2PreTrainedModel):
             if batch_size <= 0:
                 raise ValueError("batch_size has to be defined and > 0")
             attention_mask = attention_mask.view(batch_size, -1)
+            if self.config.apply_prefix:
+                prefix_mask = self.prefix_mask.unsqueeze(0).expand(batch_size, -1).to(self.device)
+                attention_mask = torch.cat([prefix_mask, attention_mask], dim=1)
             # We create a 3D attention mask from a 2D tensor mask.
             # Sizes are [batch_size, 1, 1, to_seq_length]
             # So we can broadcast to [batch_size, num_heads, from_seq_length, to_seq_length]

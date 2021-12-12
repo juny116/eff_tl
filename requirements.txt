@@ -1,6 +1,7 @@
 loralib
-deepspeed
+# deepspeed
 torch
 datasets
 scipy
 sklearn
+tensorboard
