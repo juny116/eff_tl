@@ -30,6 +30,8 @@ import deepspeed
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 
+from models.GPT2Wrapper import GPT2Wrapper
+
 
 logger = logging.getLogger(__name__)
 
@@ -297,11 +299,14 @@ def main():
         apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
         apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim
     )
-    model = AutoModelForSequenceClassification.from_pretrained(
-        args.model_name_or_path,
-        from_tf=bool(".ckpt" in args.model_name_or_path),
-        config=config,
-    )
+
+    # TODO : fix?
+    model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+    # model = AutoModelForSequenceClassification.from_pretrained(
+    #     args.model_name_or_path,
+    #     from_tf=bool(".ckpt" in args.model_name_or_path),
+    #     config=config,
+    # )
 
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
@@ -479,8 +484,10 @@ def main():
         model_engine.train()
         for step, batch in enumerate(train_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
-            outputs = model_engine(**batch)
-            loss = outputs.loss
+            # TODO : fix?
+            # outputs = model_engine(**batch)
+            # loss = outputs.loss
+            loss, _ = model_engine(**batch)
             loss = loss / args.gradient_accumulation_steps
             if args.local_rank == 0:
                 writer.add_scalar('Train/Loss', loss, model_engine.global_steps)
@@ -498,8 +505,12 @@ def main():
         for step, batch in enumerate(eval_dataloader):
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
-                outputs = model_engine(**batch)
-                predictions = outputs.logits.argmax(dim=-1)
+                # TODO : fix?
+                # outputs = model_engine(**batch)
+                # loss = outputs.loss
+                # predictions = outputs.logits.argmax(dim=-1)
+                loss, predictions = model_engine(**batch)
+                
                 metric.add_batch(
                     predictions=predictions,
                     references=batch["labels"],
@@ -524,8 +535,10 @@ def main():
     for step, batch in enumerate(test_dataloader):
         with torch.no_grad():
             batch = {k: v.cuda() for k, v in batch.items()}
-            outputs = model_engine(**batch)
-            predictions = outputs.logits.argmax(dim=-1)
+            # TODO : fix?
+            # predictions = outputs.logits.argmax(dim=-1)
+            # predictions = outputs.predictions
+            _, predictions = model_engine(**batch)
             metric.add_batch(
                 predictions=predictions,
                 references=batch["labels"],
