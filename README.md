@@ -21,9 +21,8 @@
 |Adapter H      |X      |X      |X      |X      |X      |
 |Adapter P      |X      |X      |X      |X      |X      |
 |Prompt tuning  |X      |X      |X      |X      |X      |
-|IDPG (Original)|O      |O      |O      |O      |O      |
-|IDPG (Trained) |O      |O      |O      |O      |O      |
-
+|IDPG (Original)|O      |O      |O      |O      |X      |
+|IDPG (Trained) |O      |O      |O      |O      |X      |
 
 
 ## Benchmark Results
