@@ -510,7 +510,7 @@ class TFLongformerEmbeddings(tf.keras.layers.Layer):
 
         super().build(input_shape)
 
-    def create_position_ids_from_input_ids(self, input_ids):
+    def create_position_ids_from_input_ids(self, input_ids, past_key_values_length=0):
         """
         Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding
         symbols are ignored. This is modified from fairseq's `utils.make_positions`.
@@ -520,11 +520,19 @@ class TFLongformerEmbeddings(tf.keras.layers.Layer):
         Returns: tf.Tensor
         """
         mask = tf.cast(tf.math.not_equal(input_ids, self.padding_idx), dtype=input_ids.dtype)
-        incremental_indices = tf.math.cumsum(mask, axis=1) * mask
+        incremental_indices = (tf.math.cumsum(mask, axis=1) + past_key_values_length) * mask
 
         return incremental_indices + self.padding_idx
 
-    def call(self, input_ids=None, position_ids=None, token_type_ids=None, inputs_embeds=None, training=False):
+    def call(
+        self,
+        input_ids=None,
+        position_ids=None,
+        token_type_ids=None,
+        inputs_embeds=None,
+        past_key_values_length=0,
+        training=False,
+    ):
         """
         Applies embedding based on inputs tensor.
 
@@ -544,7 +552,9 @@ class TFLongformerEmbeddings(tf.keras.layers.Layer):
         if position_ids is None:
             if input_ids is not None:
                 # Create the position ids from the input token ids. Any padded tokens remain padded.
-                position_ids = self.create_position_ids_from_input_ids(input_ids=input_ids)
+                position_ids = self.create_position_ids_from_input_ids(
+                    input_ids=input_ids, past_key_values_length=past_key_values_length
+                )
             else:
                 position_ids = tf.expand_dims(
                     tf.range(start=self.padding_idx + 1, limit=input_shape[-1] + self.padding_idx + 1), axis=0
@@ -646,8 +656,8 @@ class TFLongformerSelfAttention(tf.keras.layers.Layer):
 
         if config.hidden_size % config.num_attention_heads != 0:
             raise ValueError(
-                "The hidden size (%d) is not a multiple of the number of attention "
-                "heads (%d)" % (config.hidden_size, config.num_attention_heads)
+                f"The hidden size ({config.hidden_size}) is not a multiple of the number of attention "
+                f"heads ({config.num_attention_heads}"
             )
 
         self.num_heads = config.num_attention_heads
@@ -1189,7 +1199,7 @@ class TFLongformerSelfAttention(tf.keras.layers.Layer):
 
     @staticmethod
     def _get_global_attn_indices(is_index_global_attn):
-        """ compute global attn indices required throughout forward pass """
+        """compute global attn indices required throughout forward pass"""
         # helper variable
         num_global_attn_indices = tf.math.count_nonzero(is_index_global_attn, axis=1)
         num_global_attn_indices = tf.cast(num_global_attn_indices, dtype=tf.constant(1).dtype)
@@ -1388,7 +1398,7 @@ class TFLongformerSelfAttention(tf.keras.layers.Layer):
         # compute global attn probs
         global_attn_probs_float = tf.nn.softmax(global_attn_scores, axis=-1)
 
-        # apply layer head maskin
+        # apply layer head masking
         if layer_head_mask is not None:
             if tf.executing_eagerly():
                 tf.debugging.assert_equal(
@@ -1518,9 +1528,7 @@ class TFLongformerEncoder(tf.keras.layers.Layer):
 
         self.output_hidden_states = config.output_hidden_states
         self.output_attentions = config.output_attentions
-        self.layer = [
-            TFLongformerLayer(config, i, name="layer_._{}".format(i)) for i in range(config.num_hidden_layers)
-        ]
+        self.layer = [TFLongformerLayer(config, i, name=f"layer_._{i}") for i in range(config.num_hidden_layers)]
 
     def call(
         self,
@@ -1709,7 +1717,7 @@ class TFLongformerMainLayer(tf.keras.layers.Layer):
             inputs["attention_mask"], (attention_mask_shape[0], attention_mask_shape[1], 1, 1)
         )
 
-        # Since attention_mask is 1.0 for positions we want to locall attend locally and 0.0 for
+        # Since attention_mask is 1.0 for positions we want to attend locally and 0.0 for
         # masked and global attn positions, this operation will create a tensor which is 0.0 for
         # positions we want to attend and -10000.0 for masked positions.
         # Since we are adding it to the raw scores before the softmax, this is
@@ -1780,9 +1788,8 @@ class TFLongformerMainLayer(tf.keras.layers.Layer):
 
         if padding_len > 0:
             logger.info(
-                "Input ids are automatically padded from {} to {} to be a multiple of `config.attention_window`: {}".format(
-                    seq_len, seq_len + padding_len, attention_window
-                )
+                f"Input ids are automatically padded from {seq_len} to {seq_len + padding_len} to be a multiple of "
+                f"`config.attention_window`: {attention_window}"
             )
 
         paddings = tf.convert_to_tensor([[0, 0], [0, padding_len]])
@@ -1923,7 +1930,7 @@ LONGFORMER_INPUTS_DOCSTRING = r"""
             Mask to nullify selected heads of the attention modules. Mask values selected in ``[0, 1]``:
 
             - 1 indicates the head is **not masked**,
-            - 0 indicates the heas is **masked**.
+            - 0 indicates the head is **masked**.
 
         global_attention_mask (:obj:`tf.Tensor` of shape :obj:`({0})`, `optional`):
             Mask to decide the attention given on each token, local attention or global attention. Tokens with global
@@ -2081,10 +2088,11 @@ class TFLongformerForMaskedLM(TFLongformerPreTrainedModel, TFMaskedLanguageModel
 
     @add_start_docstrings_to_model_forward(LONGFORMER_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TFLongformerMaskedLMOutput,
         config_class=_CONFIG_FOR_DOC,
+        mask="<mask>",
     )
     def call(
         self,
@@ -2189,7 +2197,7 @@ class TFLongformerForQuestionAnswering(TFLongformerPreTrainedModel, TFQuestionAn
 
     @add_start_docstrings_to_model_forward(LONGFORMER_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint="allenai/longformer-large-4096-finetuned-triviaqa",
         output_type=TFLongformerQuestionAnsweringModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -2358,7 +2366,7 @@ class TFLongformerForSequenceClassification(TFLongformerPreTrainedModel, TFSeque
 
     @add_start_docstrings_to_model_forward(LONGFORMER_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TFLongformerSequenceClassifierOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -2484,7 +2492,7 @@ class TFLongformerForMultipleChoice(TFLongformerPreTrainedModel, TFMultipleChoic
         LONGFORMER_INPUTS_DOCSTRING.format("batch_size, num_choices, sequence_length")
     )
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TFLongformerMultipleChoiceModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -2637,7 +2645,7 @@ class TFLongformerForTokenClassification(TFLongformerPreTrainedModel, TFTokenCla
 
     @add_start_docstrings_to_model_forward(LONGFORMER_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TFLongformerTokenClassifierOutput,
         config_class=_CONFIG_FOR_DOC,

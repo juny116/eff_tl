@@ -1,2 +1,7 @@
-transformers==4.3.0
 loralib
+# deepspeed
+torch
+datasets
+scipy
+sklearn
+tensorboard

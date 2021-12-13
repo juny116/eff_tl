@@ -22,9 +22,9 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import torch
-import torch.nn as nn
 import torch.utils.checkpoint
-from torch.nn import CrossEntropyLoss, MSELoss
+from torch import nn
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 from ...activations import ACT2FN
 from ...file_utils import (
@@ -33,7 +33,7 @@ from ...file_utils import (
     add_start_docstrings_to_model_forward,
     is_scatter_available,
     replace_return_docstrings,
-    requires_scatter,
+    requires_backends,
 )
 from ...modeling_outputs import BaseModelOutput, BaseModelOutputWithPooling, MaskedLMOutput, SequenceClassifierOutput
 from ...modeling_utils import (
@@ -46,14 +46,23 @@ from ...utils import logging
 from .configuration_tapas import TapasConfig
 
 
+logger = logging.get_logger(__name__)
+
 # soft dependency
 if is_scatter_available():
-    from torch_scatter import scatter
-
-logger = logging.get_logger(__name__)
+    try:
+        from torch_scatter import scatter
+    except OSError:
+        logger.error(
+            "TAPAS models are not usable since `torch_scatter` can't be loaded. "
+            "It seems you have `torch_scatter` installed with the wrong CUDA version. "
+            "Please try to reinstall it following the instructions here: https://github.com/rusty1s/pytorch_scatter."
+        )
 
 _CONFIG_FOR_DOC = "TapasConfig"
 _TOKENIZER_FOR_DOC = "TapasTokenizer"
+_TOKENIZER_FOR_DOC = "google/tapas-base"
+_CHECKPOINT_FOR_DOC = "google/tapas-base"
 
 TAPAS_PRETRAINED_MODEL_ARCHIVE_LIST = [
     # large models
@@ -142,13 +151,13 @@ def load_tf_weights_in_tapas(model, config, tf_checkpoint_path):
         )
         raise
     tf_path = os.path.abspath(tf_checkpoint_path)
-    logger.info("Converting TensorFlow checkpoint from {}".format(tf_path))
+    logger.info(f"Converting TensorFlow checkpoint from {tf_path}")
     # Load weights from TF model
     init_vars = tf.train.list_variables(tf_path)
     names = []
     arrays = []
     for name, shape in init_vars:
-        logger.info("Loading TF weight {} with shape {}".format(name, shape))
+        logger.info(f"Loading TF weight {name} with shape {shape}")
         array = tf.train.load_variable(tf_path, name)
         names.append(name)
         arrays.append(array)
@@ -169,19 +178,24 @@ def load_tf_weights_in_tapas(model, config, tf_checkpoint_path):
             ]
             for n in name
         ):
-            logger.info("Skipping {}".format("/".join(name)))
+            logger.info(f"Skipping {'/'.join(name)}")
             continue
         # in case the model is TapasForSequenceClassification, we skip output_bias and output_weights
         # since these are not used for classification
         if isinstance(model, TapasForSequenceClassification):
             if any(n in ["output_bias", "output_weights"] for n in name):
-                logger.info("Skipping {}".format("/".join(name)))
+                logger.info(f"Skipping {'/'.join(name)}")
                 continue
         # in case the model is TapasModel, we skip output_bias, output_weights, output_bias_cls and output_weights_cls
         # since this model does not have MLM and NSP heads
         if isinstance(model, TapasModel):
             if any(n in ["output_bias", "output_weights", "output_bias_cls", "output_weights_cls"] for n in name):
-                logger.info("Skipping {}".format("/".join(name)))
+                logger.info(f"Skipping {'/'.join(name)}")
+                continue
+        # in case the model is TapasForMaskedLM, we skip the pooler
+        if isinstance(model, TapasForMaskedLM):
+            if any(n in ["pooler"] for n in name):
+                logger.info(f"Skipping {'/'.join(name)}")
                 continue
         # if first scope name starts with "bert", change it to "tapas"
         if name[0] == "bert":
@@ -198,7 +212,10 @@ def load_tf_weights_in_tapas(model, config, tf_checkpoint_path):
                 pointer = getattr(pointer, "bias")
             # cell selection heads
             elif scope_names[0] == "output_bias":
-                pointer = getattr(pointer, "output_bias")
+                if not isinstance(model, TapasForMaskedLM):
+                    pointer = getattr(pointer, "output_bias")
+                else:
+                    pointer = getattr(pointer, "bias")
             elif scope_names[0] == "output_weights":
                 pointer = getattr(pointer, "output_weights")
             elif scope_names[0] == "column_output_bias":
@@ -223,7 +240,7 @@ def load_tf_weights_in_tapas(model, config, tf_checkpoint_path):
                 try:
                     pointer = getattr(pointer, scope_names[0])
                 except AttributeError:
-                    logger.info("Skipping {}".format("/".join(name)))
+                    logger.info(f"Skipping {'/'.join(name)}")
                     continue
             if len(scope_names) >= 2:
                 num = int(scope_names[1])
@@ -235,13 +252,12 @@ def load_tf_weights_in_tapas(model, config, tf_checkpoint_path):
         elif m_name == "kernel":
             array = np.transpose(array)
         try:
-            assert (
-                pointer.shape == array.shape
-            ), f"Pointer shape {pointer.shape} and array shape {array.shape} mismatched"
+            if pointer.shape != array.shape:
+                raise ValueError(f"Pointer shape {pointer.shape} and array shape {array.shape} mismatched")
         except AssertionError as e:
             e.args += (pointer.shape, array.shape)
             raise
-        logger.info("Initialize PyTorch weight {}".format(name))
+        logger.info(f"Initialize PyTorch weight {name}")
         # Added a check to see whether the array is a scalar (because bias terms in Tapas checkpoints can be
         # scalar => should first be converted to numpy arrays)
         if np.isscalar(array):
@@ -403,7 +419,7 @@ class TapasSelfAttention(nn.Module):
             attention_scores = attention_scores + attention_mask
 
         # Normalize the attention scores to probabilities.
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
         # This is actually dropping out entire tokens to attend to, which might
         # seem a bit unusual, but is taken from the original Transformer paper.
@@ -440,7 +456,6 @@ class TapasSelfOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertAttention with Bert->Tapas
 class TapasAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -448,6 +463,7 @@ class TapasAttention(nn.Module):
         self.output = TapasSelfOutput(config)
         self.pruned_heads = set()
 
+    # Copied from transformers.models.bert.modeling_bert.BertAttention.prune_heads
     def prune_heads(self, heads):
         if len(heads) == 0:
             return
@@ -466,6 +482,7 @@ class TapasAttention(nn.Module):
         self.self.all_head_size = self.self.attention_head_size * self.self.num_attention_heads
         self.pruned_heads = self.pruned_heads.union(heads)
 
+    # Copied from transformers.models.bert.modeling_bert.BertAttention.forward
     def forward(
         self,
         hidden_states,
@@ -521,7 +538,6 @@ class TapasOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLayer with Bert->Tapas
 class TapasLayer(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -531,11 +547,13 @@ class TapasLayer(nn.Module):
         self.is_decoder = config.is_decoder
         self.add_cross_attention = config.add_cross_attention
         if self.add_cross_attention:
-            assert self.is_decoder, f"{self} should be used as a decoder model if cross attention is added"
+            if not self.is_decoder:
+                raise ValueError(f"{self} should be used as a decoder model if cross attention is added")
             self.crossattention = TapasAttention(config)
         self.intermediate = TapasIntermediate(config)
         self.output = TapasOutput(config)
 
+    # Copied from transformers.models.bert.modeling_bert.BertLayer.forward
     def forward(
         self,
         hidden_states,
@@ -566,9 +584,10 @@ class TapasLayer(nn.Module):
 
         cross_attn_present_key_value = None
         if self.is_decoder and encoder_hidden_states is not None:
-            assert hasattr(
-                self, "crossattention"
-            ), f"If `encoder_hidden_states` are passed, {self} has to be instantiated with cross-attention layers by setting `config.add_cross_attention=True`"
+            if not hasattr(self, "crossattention"):
+                raise ValueError(
+                    f"If `encoder_hidden_states` are passed, {self} has to be instantiated with cross-attention layers by setting `config.add_cross_attention=True`"
+                )
 
             # cross_attn cached key/values tuple is at positions 3,4 of past_key_value tuple
             cross_attn_past_key_value = past_key_value[-2:] if past_key_value is not None else None
@@ -599,6 +618,7 @@ class TapasLayer(nn.Module):
 
         return outputs
 
+    # Copied from transformers.models.bert.modeling_bert.BertLayer.feed_forward_chunk
     def feed_forward_chunk(self, attention_output):
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
@@ -610,6 +630,7 @@ class TapasEncoder(nn.Module):
         super().__init__()
         self.config = config
         self.layer = nn.ModuleList([TapasLayer(config) for _ in range(config.num_hidden_layers)])
+        self.gradient_checkpointing = False
 
     def forward(
         self,
@@ -632,7 +653,7 @@ class TapasEncoder(nn.Module):
 
             layer_head_mask = head_mask[i] if head_mask is not None else None
 
-            if getattr(self.config, "gradient_checkpointing", False):
+            if self.gradient_checkpointing and self.training:
 
                 def create_custom_forward(module):
                     def custom_forward(*inputs):
@@ -688,6 +709,56 @@ class TapasPooler(nn.Module):
         return pooled_output
 
 
+# Copied from transformers.models.bert.modeling_bert.BertPredictionHeadTransform with Bert->Tapas
+class TapasPredictionHeadTransform(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        if isinstance(config.hidden_act, str):
+            self.transform_act_fn = ACT2FN[config.hidden_act]
+        else:
+            self.transform_act_fn = config.hidden_act
+        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+
+    def forward(self, hidden_states):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.transform_act_fn(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states)
+        return hidden_states
+
+
+# Copied from transformers.models.bert.modeling_bert.BertLMPredictionHead with Bert->Tapas
+class TapasLMPredictionHead(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.transform = TapasPredictionHeadTransform(config)
+
+        # The output weights are the same as the input embeddings, but there is
+        # an output-only bias for each token.
+        self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+
+        self.bias = nn.Parameter(torch.zeros(config.vocab_size))
+
+        # Need a link between the two variables so that the bias is correctly resized with `resize_token_embeddings`
+        self.decoder.bias = self.bias
+
+    def forward(self, hidden_states):
+        hidden_states = self.transform(hidden_states)
+        hidden_states = self.decoder(hidden_states)
+        return hidden_states
+
+
+# Copied from transformers.models.bert.modeling_bert.BertOnlyMLMHead with Bert->Tapas
+class TapasOnlyMLMHead(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.predictions = TapasLMPredictionHead(config)
+
+    def forward(self, sequence_output):
+        prediction_scores = self.predictions(sequence_output)
+        return prediction_scores
+
+
 class TapasPreTrainedModel(PreTrainedModel):
     """
     An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
@@ -696,10 +767,11 @@ class TapasPreTrainedModel(PreTrainedModel):
 
     config_class = TapasConfig
     base_model_prefix = "tapas"
+    supports_gradient_checkpointing = True
 
     # Copied from transformers.models.bert.modeling_bert.BertPreTrainedModel._init_weights
     def _init_weights(self, module):
-        """ Initialize the weights """
+        """Initialize the weights"""
         if isinstance(module, nn.Linear):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
@@ -713,6 +785,10 @@ class TapasPreTrainedModel(PreTrainedModel):
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
+
+    def _set_gradient_checkpointing(self, module, value=False):
+        if isinstance(module, TapasEncoder):
+            module.gradient_checkpointing = value
 
 
 TAPAS_START_DOCSTRING = r"""
@@ -792,7 +868,7 @@ class TapasModel(TapasPreTrainedModel):
     """
 
     def __init__(self, config, add_pooling_layer=True):
-        requires_scatter(self)
+        requires_backends(self, "scatter")
         super().__init__(config)
         self.config = config
 
@@ -801,7 +877,8 @@ class TapasModel(TapasPreTrainedModel):
 
         self.pooler = TapasPooler(config) if add_pooling_layer else None
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_input_embeddings(self):
         return self.embeddings.word_embeddings
@@ -938,15 +1015,16 @@ class TapasForMaskedLM(TapasPreTrainedModel):
         super().__init__(config)
 
         self.tapas = TapasModel(config, add_pooling_layer=False)
-        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size)
+        self.cls = TapasOnlyMLMHead(config)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_output_embeddings(self):
-        return self.lm_head
+        return self.cls.predictions.decoder
 
-    def set_output_embeddings(self, word_embeddings):
-        self.lm_head = word_embeddings
+    def set_output_embeddings(self, new_embeddings):
+        self.cls.predictions.decoder = new_embeddings
 
     @add_start_docstrings_to_model_forward(TAPAS_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @replace_return_docstrings(output_type=MaskedLMOutput, config_class=_CONFIG_FOR_DOC)
@@ -1011,7 +1089,7 @@ class TapasForMaskedLM(TapasPreTrainedModel):
         )
 
         sequence_output = outputs[0]
-        prediction_scores = self.lm_head(sequence_output)
+        prediction_scores = self.cls(sequence_output)
 
         masked_lm_loss = None
         if labels is not None:
@@ -1070,7 +1148,8 @@ class TapasForQuestionAnswering(TapasPreTrainedModel):
         if config.num_aggregation_labels > 0:
             self.aggregation_classifier = nn.Linear(config.hidden_size, config.num_aggregation_labels)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(TAPAS_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @replace_return_docstrings(output_type=TableQuestionAnsweringOutput, config_class=_CONFIG_FOR_DOC)
@@ -1388,7 +1467,8 @@ class TapasForSequenceClassification(TapasPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(TAPAS_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @replace_return_docstrings(output_type=SequenceClassifierOutput, config_class=_CONFIG_FOR_DOC)
@@ -1458,14 +1538,26 @@ class TapasForSequenceClassification(TapasPreTrainedModel):
 
         loss = None
         if labels is not None:
-            if self.num_labels == 1:
-                #  We are doing regression
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+
+            if self.config.problem_type == "regression":
                 loss_fct = MSELoss()
-                loss = loss_fct(logits.view(-1), labels.view(-1))
-            else:
+                if self.num_labels == 1:
+                    loss = loss_fct(logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(logits, labels)
+            elif self.config.problem_type == "single_label_classification":
                 loss_fct = CrossEntropyLoss()
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-
+            elif self.config.problem_type == "multi_label_classification":
+                loss_fct = BCEWithLogitsLoss()
+                loss = loss_fct(logits, labels)
         if not return_dict:
             output = (logits,) + outputs[2:]
             return ((loss,) + output) if loss is not None else output
@@ -1697,9 +1789,9 @@ def _segment_reduce(values, index, segment_reduce_fn, name):
 
     segment_means = scatter(
         src=flat_values,
-        index=flat_index.indices.type(torch.long),
+        index=flat_index.indices.long(),
         dim=0,
-        dim_size=flat_index.num_segments,
+        dim_size=int(flat_index.num_segments),
         reduce=segment_reduce_fn,
     )
 
@@ -2021,7 +2113,7 @@ def _calculate_aggregate_mask(answer, pooled_output, cell_selection_preference, 
     apply to numbers. If the answer is a number but does not appear in the table then we must use some aggregation
     case. The ambiguous case is when the answer is a number that also appears in the table. In this case we use the
     aggregation function probabilities predicted by the model to decide whether to select or aggregate. The threshold
-    for this is a hyperparameter `cell_selection_preference
+    for this is a hyperparameter `cell_selection_preference`
 
     Args:
         answer (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, )`):
@@ -2041,7 +2133,7 @@ def _calculate_aggregate_mask(answer, pooled_output, cell_selection_preference, 
     aggregate_mask_init = torch.logical_not(torch.isnan(answer)).type(torch.FloatTensor).to(answer.device)
     logits_aggregation = aggregation_classifier(pooled_output)
     dist_aggregation = torch.distributions.categorical.Categorical(logits=logits_aggregation)
-    # Index 0 correponds to "no aggregation".
+    # Index 0 corresponds to "no aggregation".
     aggregation_ops_total_mass = torch.sum(dist_aggregation.probs[:, 1:], dim=1)
 
     # Cell selection examples according to current model.
@@ -2096,10 +2188,8 @@ def _calculate_aggregation_loss_known(
         # Use aggregation supervision as the target.
         target_aggregation = aggregation_labels
 
-    one_hot_labels = torch.nn.functional.one_hot(target_aggregation, num_classes=num_aggregation_labels).type(
-        torch.float32
-    )
-    log_probs = torch.nn.functional.log_softmax(logits_aggregation, dim=-1)
+    one_hot_labels = nn.functional.one_hot(target_aggregation, num_classes=num_aggregation_labels).type(torch.float32)
+    log_probs = nn.functional.log_softmax(logits_aggregation, dim=-1)
 
     # torch.FloatTensor[batch_size]
     per_example_aggregation_intermediate = -torch.sum(one_hot_labels * log_probs, dim=-1)
@@ -2126,7 +2216,7 @@ def _calculate_aggregation_loss_unknown(logits_aggregation, aggregate_mask):
         answer supervision) per example.
     """
     dist_aggregation = torch.distributions.categorical.Categorical(logits=logits_aggregation)
-    # Index 0 correponds to "no aggregation".
+    # Index 0 corresponds to "no aggregation".
     aggregation_ops_total_mass = torch.sum(dist_aggregation.probs[:, 1:], dim=1)
     # Predict some aggregation in case of an answer that needs aggregation.
     # This increases the probability of all aggregation functions, in a way
@@ -2243,7 +2333,7 @@ def _calculate_expected_result(
         aggregation_op_only_probs = gumbel_dist.sample()
     else:
         # <float32>[batch_size, num_aggregation_labels - 1]
-        aggregation_op_only_probs = torch.nn.functional.softmax(
+        aggregation_op_only_probs = nn.functional.softmax(
             logits_aggregation[:, 1:] / config.aggregation_temperature, dim=-1
         )
 

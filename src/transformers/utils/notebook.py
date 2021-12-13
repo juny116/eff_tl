@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import collections
+import re
 import time
 from typing import Optional
 
@@ -33,15 +35,6 @@ def html_progress_bar(value, total, prefix, label, width=300):
     # docstyle-ignore
     return f"""
     <div>
-        <style>
-            /* Turns off some styling */
-            progress {{
-                /* gets rid of default border in Firefox and Opera. */
-                border: none;
-                /* Needs to be in here for Safari polyfill so background images work as expected. */
-                background-size: auto;
-            }}
-        </style>
       {prefix}
       <progress value='{value}' max='{total}' style='width:{width}px; height:20px; vertical-align: middle;'></progress>
       {label}
@@ -155,18 +148,25 @@ class NotebookProgressBar:
                 self.first_calls -= 1
             current_time = time.time()
             self.elapsed_time = current_time - self.start_time
-            self.average_time_per_item = self.elapsed_time / (value - self.start_value)
+            # We could have value = self.start_value if the update is called twixe with the same start value.
+            if value > self.start_value:
+                self.average_time_per_item = self.elapsed_time / (value - self.start_value)
+            else:
+                self.average_time_per_item = None
             if value >= self.total:
                 value = self.total
                 self.predicted_remaining = None
                 if not self.leave:
                     self.close()
-            else:
+            elif self.average_time_per_item is not None:
                 self.predicted_remaining = self.average_time_per_item * (self.total - value)
             self.update_bar(value)
             self.last_value = value
             self.last_time = current_time
-            self.wait_for = max(int(self.update_every / self.average_time_per_item), 1)
+            if self.average_time_per_item is None:
+                self.wait_for = 1
+            else:
+                self.wait_for = max(int(self.update_every / self.average_time_per_item), 1)
 
     def update_bar(self, value, comment=None):
         spaced_value = " " * (len(str(self.total)) - len(str(value))) + str(value)
@@ -295,6 +295,8 @@ class NotebookProgressCallback(TrainerCallback):
         self._force_next_update = False
 
     def on_prediction_step(self, args, state, control, eval_dataloader=None, **kwargs):
+        if not isinstance(eval_dataloader.dataset, collections.abc.Sized):
+            return
         if self.prediction_bar is None:
             if self.training_tracker is not None:
                 self.prediction_bar = self.training_tracker.add_child(len(eval_dataloader))
@@ -314,7 +316,7 @@ class NotebookProgressCallback(TrainerCallback):
 
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
         if self.training_tracker is not None:
-            values = {"Training Loss": "No log"}
+            values = {"Training Loss": "No log", "Validation Loss": "No log"}
             for log in reversed(state.log_history):
                 if "loss" in log:
                     values["Training Loss"] = log["loss"]
@@ -324,11 +326,17 @@ class NotebookProgressCallback(TrainerCallback):
                 values["Epoch"] = int(state.epoch)
             else:
                 values["Step"] = state.global_step
-            values["Validation Loss"] = metrics["eval_loss"]
+            metric_key_prefix = "eval"
+            for k in metrics:
+                if k.endswith("_loss"):
+                    metric_key_prefix = re.sub(r"\_loss$", "", k)
             _ = metrics.pop("total_flos", None)
             _ = metrics.pop("epoch", None)
+            _ = metrics.pop(f"{metric_key_prefix}_runtime", None)
+            _ = metrics.pop(f"{metric_key_prefix}_samples_per_second", None)
+            _ = metrics.pop(f"{metric_key_prefix}_steps_per_second", None)
             for k, v in metrics.items():
-                if k == "eval_loss":
+                if k == f"{metric_key_prefix}_loss":
                     values["Validation Loss"] = v
                 else:
                     splits = k.split("_")

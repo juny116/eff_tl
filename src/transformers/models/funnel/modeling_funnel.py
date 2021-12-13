@@ -21,8 +21,7 @@ from typing import Optional, Tuple
 import numpy as np
 import torch
 from torch import nn
-from torch.nn import CrossEntropyLoss, MSELoss
-from torch.nn import functional as F
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 from ...activations import ACT2FN
 from ...file_utils import (
@@ -49,6 +48,7 @@ logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "FunnelConfig"
 _TOKENIZER_FOR_DOC = "FunnelTokenizer"
+_CHECKPOINT_FOR_DOC = "funnel-transformer/small"
 
 FUNNEL_PRETRAINED_MODEL_ARCHIVE_LIST = [
     "funnel-transformer/small",  # B4-4-4H768
@@ -80,13 +80,13 @@ def load_tf_weights_in_funnel(model, config, tf_checkpoint_path):
         )
         raise
     tf_path = os.path.abspath(tf_checkpoint_path)
-    logger.info("Converting TensorFlow checkpoint from {}".format(tf_path))
+    logger.info(f"Converting TensorFlow checkpoint from {tf_path}")
     # Load weights from TF model
     init_vars = tf.train.list_variables(tf_path)
     names = []
     arrays = []
     for name, shape in init_vars:
-        logger.info("Loading TF weight {} with shape {}".format(name, shape))
+        logger.info(f"Loading TF weight {name} with shape {shape}")
         array = tf.train.load_variable(tf_path, name)
         names.append(name)
         arrays.append(array)
@@ -116,7 +116,7 @@ def load_tf_weights_in_funnel(model, config, tf_checkpoint_path):
             n in ["adam_v", "adam_m", "AdamWeightDecayOptimizer", "AdamWeightDecayOptimizer_1", "global_step"]
             for n in name
         ):
-            logger.info("Skipping {}".format("/".join(name)))
+            logger.info(f"Skipping {'/'.join(name)}")
             continue
         if name[0] == "generator":
             continue
@@ -143,7 +143,7 @@ def load_tf_weights_in_funnel(model, config, tf_checkpoint_path):
                 try:
                     pointer = getattr(pointer, m_name)
                 except AttributeError:
-                    print("Skipping {}".format("/".join(name)), array.shape)
+                    print(f"Skipping {'/'.join(name)}", array.shape)
                     skipped = True
                     break
         if not skipped:
@@ -184,11 +184,11 @@ class FunnelAttentionStructure(nn.Module):
         self.sin_dropout = nn.Dropout(config.hidden_dropout)
         self.cos_dropout = nn.Dropout(config.hidden_dropout)
         # Track where we are at in terms of pooling from the original input, e.g., by how much the sequence length was
-        # dividide.
+        # divided.
         self.pooling_mult = None
 
     def init_attention_inputs(self, inputs_embeds, attention_mask=None, token_type_ids=None):
-        """ Returns the attention inputs associated to the inputs of the model. """
+        """Returns the attention inputs associated to the inputs of the model."""
         # inputs_embeds has shape batch_size x seq_len x d_model
         # attention_mask and token_type_ids have shape batch_size x seq_len
         self.pooling_mult = 1
@@ -196,7 +196,7 @@ class FunnelAttentionStructure(nn.Module):
         position_embeds = self.get_position_embeds(seq_len, inputs_embeds.dtype, inputs_embeds.device)
         token_type_mat = self.token_type_ids_to_mat(token_type_ids) if token_type_ids is not None else None
         cls_mask = (
-            F.pad(inputs_embeds.new_ones([seq_len - 1, seq_len - 1]), (1, 0, 1, 0))
+            nn.functional.pad(inputs_embeds.new_ones([seq_len - 1, seq_len - 1]), (1, 0, 1, 0))
             if self.config.separate_cls
             else None
         )
@@ -218,7 +218,7 @@ class FunnelAttentionStructure(nn.Module):
         For the factorized attention, it returns the matrices (phi, pi, psi, omega) used in the paper, appendix A.2.2,
         final formula.
 
-        For the relative shif attention, it returns all possible vectors R used in the paper, appendix A.2.1, final
+        For the relative shift attention, it returns all possible vectors R used in the paper, appendix A.2.1, final
         formula.
 
         Paper link: https://arxiv.org/abs/2006.03236
@@ -368,11 +368,11 @@ class FunnelAttentionStructure(nn.Module):
         stride = (stride, 1)
 
         if mode == "mean":
-            tensor = F.avg_pool2d(tensor, stride, stride=stride, ceil_mode=True)
+            tensor = nn.functional.avg_pool2d(tensor, stride, stride=stride, ceil_mode=True)
         elif mode == "max":
-            tensor = F.max_pool2d(tensor, stride, stride=stride, ceil_mode=True)
+            tensor = nn.functional.max_pool2d(tensor, stride, stride=stride, ceil_mode=True)
         elif mode == "min":
-            tensor = -F.max_pool2d(-tensor, stride, stride=stride, ceil_mode=True)
+            tensor = -nn.functional.max_pool2d(-tensor, stride, stride=stride, ceil_mode=True)
         else:
             raise NotImplementedError("The supported modes are 'mean', 'max' and 'min'.")
 
@@ -383,7 +383,7 @@ class FunnelAttentionStructure(nn.Module):
         return tensor
 
     def pre_attention_pooling(self, output, attention_inputs):
-        """ Pool `output` and the proper parts of `attention_inputs` before the attention layer. """
+        """Pool `output` and the proper parts of `attention_inputs` before the attention layer."""
         position_embeds, token_type_mat, attention_mask, cls_mask = attention_inputs
         if self.config.pool_q_only:
             if self.config.attention_type == "factorized":
@@ -403,7 +403,7 @@ class FunnelAttentionStructure(nn.Module):
         return output, attention_inputs
 
     def post_attention_pooling(self, attention_inputs):
-        """ Pool the proper parts of `attention_inputs` after the attention layer. """
+        """Pool the proper parts of `attention_inputs` after the attention layer."""
         position_embeds, token_type_mat, attention_mask, cls_mask = attention_inputs
         if self.config.pool_q_only:
             self.pooling_mult *= 2
@@ -457,7 +457,7 @@ class FunnelRelMultiheadAttention(nn.Module):
         self.scale = 1.0 / (d_head ** 0.5)
 
     def relative_positional_attention(self, position_embeds, q_head, context_len, cls_mask=None):
-        """ Relative attention score for the positional encodings """
+        """Relative attention score for the positional encodings"""
         # q_head has shape batch_size x sea_len x n_head x d_head
         if self.config.attention_type == "factorized":
             # Notations from the paper, appending A.2.2, final formula (https://arxiv.org/abs/2006.03236)
@@ -499,7 +499,7 @@ class FunnelRelMultiheadAttention(nn.Module):
         return positional_attn
 
     def relative_token_type_attention(self, token_type_mat, q_head, cls_mask=None):
-        """ Relative attention score for the token_type_ids """
+        """Relative attention score for the token_type_ids"""
         if token_type_mat is None:
             return 0
         batch_size, seq_len, context_len = token_type_mat.shape
@@ -900,7 +900,8 @@ class FunnelBaseModel(FunnelPreTrainedModel):
         self.embeddings = FunnelEmbeddings(config)
         self.encoder = FunnelEncoder(config)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_input_embeddings(self):
         return self.embeddings.word_embeddings
@@ -910,7 +911,7 @@ class FunnelBaseModel(FunnelPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint="funnel-transformer/small-base",
         output_type=BaseModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -977,7 +978,8 @@ class FunnelModel(FunnelPreTrainedModel):
         self.encoder = FunnelEncoder(config)
         self.decoder = FunnelDecoder(config)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_input_embeddings(self):
         return self.embeddings.word_embeddings
@@ -987,8 +989,8 @@ class FunnelModel(FunnelPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint="funnel-transformer/small",
+        processor_class=_TOKENIZER_FOR_DOC,
+        checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=BaseModelOutput,
         config_class=_CONFIG_FOR_DOC,
     )
@@ -1082,7 +1084,8 @@ class FunnelForPreTraining(FunnelPreTrainedModel):
 
         self.funnel = FunnelModel(config)
         self.discriminator_predictions = FunnelDiscriminatorPredictions(config)
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @replace_return_docstrings(output_type=FunnelForPreTrainingOutput, config_class=_CONFIG_FOR_DOC)
@@ -1164,7 +1167,8 @@ class FunnelForMaskedLM(FunnelPreTrainedModel):
         self.funnel = FunnelModel(config)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_output_embeddings(self):
         return self.lm_head
@@ -1174,8 +1178,8 @@ class FunnelForMaskedLM(FunnelPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint="funnel-transformer/small",
+        processor_class=_TOKENIZER_FOR_DOC,
+        checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=MaskedLMOutput,
         config_class=_CONFIG_FOR_DOC,
         mask="<mask>",
@@ -1240,14 +1244,16 @@ class FunnelForSequenceClassification(FunnelPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
+        self.config = config
 
         self.funnel = FunnelBaseModel(config)
         self.classifier = FunnelClassificationHead(config, config.num_labels)
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint="funnel-transformer/small-base",
         output_type=SequenceClassifierOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1287,13 +1293,26 @@ class FunnelForSequenceClassification(FunnelPreTrainedModel):
 
         loss = None
         if labels is not None:
-            if self.num_labels == 1:
-                #  We are doing regression
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+
+            if self.config.problem_type == "regression":
                 loss_fct = MSELoss()
-                loss = loss_fct(logits.view(-1), labels.view(-1))
-            else:
+                if self.num_labels == 1:
+                    loss = loss_fct(logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(logits, labels)
+            elif self.config.problem_type == "single_label_classification":
                 loss_fct = CrossEntropyLoss()
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            elif self.config.problem_type == "multi_label_classification":
+                loss_fct = BCEWithLogitsLoss()
+                loss = loss_fct(logits, labels)
 
         if not return_dict:
             output = (logits,) + outputs[1:]
@@ -1320,11 +1339,12 @@ class FunnelForMultipleChoice(FunnelPreTrainedModel):
 
         self.funnel = FunnelBaseModel(config)
         self.classifier = FunnelClassificationHead(config, 1)
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, num_choices, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint="funnel-transformer/small-base",
         output_type=MultipleChoiceModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1406,12 +1426,13 @@ class FunnelForTokenClassification(FunnelPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint="funnel-transformer/small",
+        processor_class=_TOKENIZER_FOR_DOC,
+        checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TokenClassifierOutput,
         config_class=_CONFIG_FOR_DOC,
     )
@@ -1488,12 +1509,13 @@ class FunnelForQuestionAnswering(FunnelPreTrainedModel):
         self.funnel = FunnelModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint="funnel-transformer/small",
+        processor_class=_TOKENIZER_FOR_DOC,
+        checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=QuestionAnsweringModelOutput,
         config_class=_CONFIG_FOR_DOC,
     )
@@ -1535,8 +1557,8 @@ class FunnelForQuestionAnswering(FunnelPreTrainedModel):
 
         logits = self.qa_outputs(last_hidden_state)
         start_logits, end_logits = logits.split(1, dim=-1)
-        start_logits = start_logits.squeeze(-1)
-        end_logits = end_logits.squeeze(-1)
+        start_logits = start_logits.squeeze(-1).contiguous()
+        end_logits = end_logits.squeeze(-1).contiguous()
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
@@ -1547,8 +1569,8 @@ class FunnelForQuestionAnswering(FunnelPreTrainedModel):
                 end_positions = end_positions.squeeze(-1)
             # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
-            start_positions.clamp_(0, ignored_index)
-            end_positions.clamp_(0, ignored_index)
+            start_positions = start_positions.clamp(0, ignored_index)
+            end_positions = end_positions.clamp(0, ignored_index)
 
             loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
             start_loss = loss_fct(start_logits, start_positions)

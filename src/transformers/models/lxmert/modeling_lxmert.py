@@ -205,13 +205,13 @@ def load_tf_weights_in_lxmert(model, config, tf_checkpoint_path):
         )
         raise
     tf_path = os.path.abspath(tf_checkpoint_path)
-    logger.info("Converting TensorFlow checkpoint from {}".format(tf_path))
+    logger.info(f"Converting TensorFlow checkpoint from {tf_path}")
     # Load weights from TF model
     init_vars = tf.train.list_variables(tf_path)
     names = []
     arrays = []
     for name, shape in init_vars:
-        logger.info("Loading TF weight {} with shape {}".format(name, shape))
+        logger.info(f"Loading TF weight {name} with shape {shape}")
         array = tf.train.load_variable(tf_path, name)
         names.append(name)
         arrays.append(array)
@@ -231,7 +231,7 @@ def load_tf_weights_in_lxmert(model, config, tf_checkpoint_path):
             ]
             for n in name
         ):
-            logger.info("Skipping {}".format("/".join(name)))
+            logger.info(f"Skipping {'/'.join(name)}")
             continue
         pointer = model
         for m_name in name:
@@ -251,7 +251,7 @@ def load_tf_weights_in_lxmert(model, config, tf_checkpoint_path):
                 try:
                     pointer = getattr(pointer, scope_names[0])
                 except AttributeError:
-                    logger.info("Skipping {}".format("/".join(name)))
+                    logger.info(f"Skipping {'/'.join(name)}")
                     continue
             if len(scope_names) >= 2:
                 num = int(scope_names[1])
@@ -265,7 +265,7 @@ def load_tf_weights_in_lxmert(model, config, tf_checkpoint_path):
         except AssertionError as e:
             e.args += (pointer.shape, array.shape)
             raise
-        logger.info("Initialize PyTorch weight {}".format(name))
+        logger.info(f"Initialize PyTorch weight {name}")
         pointer.data = torch.from_numpy(array)
     return model
 
@@ -315,8 +315,8 @@ class LxmertAttention(nn.Module):
         super().__init__()
         if config.hidden_size % config.num_attention_heads != 0:
             raise ValueError(
-                "The hidden size (%d) is not a multiple of the number of attention "
-                "heads (%d)" % (config.hidden_size, config.num_attention_heads)
+                f"The hidden size ({config.hidden_size}) is not a multiple of the number of attention "
+                f"heads ({config.num_attention_heads})"
             )
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
@@ -356,7 +356,7 @@ class LxmertAttention(nn.Module):
             attention_scores = attention_scores + attention_mask
 
         # Normalize the attention scores to probabilities.
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
         # This is actually dropping out entire tokens to attend to, which might
         # seem a bit unusual, but is taken from the original Transformer paper.
@@ -783,7 +783,7 @@ class LxmertPreTrainedModel(PreTrainedModel):
     base_model_prefix = "lxmert"
 
     def _init_weights(self, module):
-        """ Initialize the weights """
+        """Initialize the weights"""
         if isinstance(module, nn.Linear):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
@@ -891,7 +891,8 @@ class LxmertModel(LxmertPreTrainedModel):
         self.embeddings = LxmertEmbeddings(config)
         self.encoder = LxmertEncoder(config)
         self.pooler = LxmertPooler(config)
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_input_embeddings(self):
         return self.embeddings.word_embeddings
@@ -901,7 +902,7 @@ class LxmertModel(LxmertPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(LXMERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=LxmertModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -935,8 +936,10 @@ class LxmertModel(LxmertPreTrainedModel):
         else:
             raise ValueError("You have to specify either input_ids or inputs_embeds")
 
-        assert visual_feats is not None, "`visual_feats` cannot be `None`"
-        assert visual_pos is not None, "`visual_pos` cannot be `None`"
+        if visual_feats is None:
+            raise ValueError("`visual_feats` cannot be `None`")
+        if visual_pos is None:
+            raise ValueError("`visual_pos` cannot be `None`")
 
         device = input_ids.device if input_ids is not None else inputs_embeds.device
 
@@ -1046,7 +1049,8 @@ class LxmertForPreTraining(LxmertPreTrainedModel):
             self.answer_head = LxmertVisualAnswerHead(config, self.num_qa_labels)
 
         # Weight initialization
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
         # Loss functions
         self.loss_fcts = {
@@ -1301,7 +1305,8 @@ class LxmertForQuestionAnswering(LxmertPreTrainedModel):
         self.answer_head = LxmertVisualAnswerHead(config, self.num_qa_labels)
 
         # Weight initialization
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
         # Loss function
         self.loss = CrossEntropyLoss()
@@ -1382,7 +1387,7 @@ class LxmertForQuestionAnswering(LxmertPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(LXMERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=LxmertForQuestionAnsweringOutput,
         config_class=_CONFIG_FOR_DOC,

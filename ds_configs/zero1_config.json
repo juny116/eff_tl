@@ -1,0 +1,13 @@
+{
+  "train_batch_size": 32,
+  "gradient_accumulation_steps": 1,
+  "steps_per_print":20000,
+  "fp16": {
+    "enabled": true
+  },
+  "zero_allow_untested_optimizer": true,
+  "zero_optimization": {
+    "stage":1,
+        "reduce_bucket_size": 5e8
+  }
+}

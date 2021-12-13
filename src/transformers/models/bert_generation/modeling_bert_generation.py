@@ -109,7 +109,7 @@ def load_tf_weights_in_bert_generation(
 
             array = np.asarray(sess.run(all_variables[key]))
             if not is_embedding:
-                logger.info("Transposing numpy weight of shape {} for {}".format(array.shape, key))
+                logger.info(f"Transposing numpy weight of shape {array.shape} for {key}")
                 array = np.transpose(array)
             else:
                 model_pointer = model_pointer.weight
@@ -126,7 +126,7 @@ def load_tf_weights_in_bert_generation(
             model_pointer.data = torch.from_numpy(array.astype(np.float32))
             keep_track_variables.pop(key, None)
 
-        logger.info("Weights not copied to PyTorch model: {}".format(", ".join(keep_track_variables.keys())))
+        logger.info(f"Weights not copied to PyTorch model: {', '.join(keep_track_variables.keys())}")
         return model
 
 
@@ -139,7 +139,7 @@ class BertGenerationEmbeddings(nn.Module):
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         # self.LayerNorm is not snake-cased to stick with TensorFlow model variable name and be able to load
         # any TensorFlow checkpoint file
-        self.LayerNorm = torch.nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
         # position_ids (1, len position emb) is contiguous in memory and exported when serialized
@@ -177,7 +177,7 @@ class BertGenerationPreTrainedModel(PreTrainedModel):
     _keys_to_ignore_on_load_missing = [r"position_ids"]
 
     def _init_weights(self, module):
-        """ Initialize the weights """
+        """Initialize the weights"""
         if isinstance(module, nn.Linear):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
@@ -282,7 +282,8 @@ class BertGenerationEncoder(BertGenerationPreTrainedModel):
         self.embeddings = BertGenerationEmbeddings(config)
         self.encoder = BertEncoder(config)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_input_embeddings(self):
         return self.embeddings.word_embeddings
@@ -300,7 +301,7 @@ class BertGenerationEncoder(BertGenerationPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_GENERATION_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=BaseModelOutputWithPastAndCrossAttentions,
         config_class=_CONFIG_FOR_DOC,
@@ -353,13 +354,12 @@ class BertGenerationEncoder(BertGenerationPreTrainedModel):
             raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
         elif input_ids is not None:
             input_shape = input_ids.size()
-            batch_size, seq_length = input_shape
         elif inputs_embeds is not None:
             input_shape = inputs_embeds.size()[:-1]
-            batch_size, seq_length = input_shape
         else:
             raise ValueError("You have to specify either input_ids or inputs_embeds")
 
+        batch_size, seq_length = input_shape
         device = input_ids.device if input_ids is not None else inputs_embeds.device
 
         # past_key_values_length
@@ -430,15 +430,17 @@ class BertGenerationEncoder(BertGenerationPreTrainedModel):
 class BertGenerationOnlyLMHead(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        self.decoder = nn.Linear(config.hidden_size, config.vocab_size)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
-
-        # Need a link between the two variables so that the bias is correctly resized with `resize_token_embeddings`
         self.decoder.bias = self.bias
 
     def forward(self, hidden_states):
         logits = self.decoder(hidden_states)
         return logits
+
+    def _tie_weights(self):
+        # To tie those two weights if they get disconnected (on TPU or when the bias is resized)
+        self.bias = self.decoder.bias
 
 
 @add_start_docstrings(
@@ -450,12 +452,13 @@ class BertGenerationDecoder(BertGenerationPreTrainedModel):
         super().__init__(config)
 
         if not config.is_decoder:
-            logger.warn("If you want to use `BertGenerationDecoder` as a standalone, add `is_decoder=True.`")
+            logger.warning("If you want to use `BertGenerationDecoder` as a standalone, add `is_decoder=True.`")
 
         self.bert = BertGenerationEncoder(config)
         self.lm_head = BertGenerationOnlyLMHead(config)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_output_embeddings(self):
         return self.lm_head.decoder
