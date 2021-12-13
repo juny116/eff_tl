@@ -34,3 +34,11 @@
 |Adapter H      |      |            |       |       |       |
 |Adapter P      |      |            |       |       |       |
 |Prompt tuning  |      |            |       |       |       |
+
+
+## Dataset split details
+|Dataset        |Train   | Validation | Test      |
+|---            |---     |---         |---        |
+|MNLI           | 392702 |9815 / 9832 |9796 / 9847|
+|SST-2          | -      |     -      |    -      |
+|RTE            | -      |     -      |    -      |
