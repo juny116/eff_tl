@@ -491,7 +491,6 @@ def main():
                 progress_bar.update(1)
                 completed_steps += 1
 
-            # TODO: MUST FIX!!! in case of max train step, same evaluation will run until end of max epoch
             if completed_steps >= args.max_train_steps:
                 break
 
