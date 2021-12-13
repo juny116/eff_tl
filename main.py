@@ -47,7 +47,6 @@ task_to_keys = {
     "wnli": ("sentence1", "sentence2"),
 }
 
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune a transformers model on a text classification task")
     parser.add_argument(
@@ -204,6 +203,48 @@ def parse_args():
         action="store_true",
         help='apply adapter tuning params'
     )
+    # for dataloader
+    parser.add_argument(
+        '--max_train_samples', 
+        default=None, 
+        type=int, 
+        help='Max number of train samples.'
+    )
+
+    ## OURS ##
+    parser.add_argument(
+        '--apply_encoder', 
+        default=False, 
+        action="store_true",
+        help='Apply input dependent encoder.'
+    )
+    parser.add_argument(
+        '--apply_input', 
+        default=False, 
+        action="store_true",
+        help='Apply input for prompt generating.'
+    )
+    parser.add_argument(
+        '--encoder_model_name_or_path', 
+        default='gpt2', 
+        type=str, 
+        help='PLM for encoder.'
+    )
+    parser.add_argument(
+        '--freeze_encoder', 
+        default=False, 
+        action="store_true",
+        help='Freeze PLM for the encoder.'
+    )
+    # for dataloader
+    parser.add_argument(
+        '--prompt_length', 
+        default=0, 
+        type=int, 
+        help='Number of prompt tokens.'
+    )
+
+    
     args = parser.parse_args()
     
     # Sanity checks
@@ -257,17 +298,32 @@ def main():
     if args.task_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = DatasetDict()
-        max_train_sample = 10000
-        if max_train_sample is not None:
-            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{max_train_sample}]')
+        if args.max_train_samples is not None:
+            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{args.max_train_samples}]')
         else:
             raw_train_dataset = load_dataset("glue", args.task_name, split=f'train')
         # Since glue test set is not opened, use 1K train as validation and original validation as test
-        train_test_split = raw_train_dataset.train_test_split(test_size=1000)
-        raw_datasets['train'] = train_test_split['train']
-        raw_datasets['validation'] = train_test_split['test']
-        # TODO: add mnli case
-        raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
+        
+        # for small datasets (RTE, ...)
+        if len(raw_train_dataset) < 10000:
+            raw_eval_dataset = load_dataset("glue", args.task_name, split=f'validation')
+            eval_test_split = raw_eval_dataset.train_test_split(test_size=0.5)
+            raw_datasets['train'] = raw_train_dataset
+            raw_datasets['validation'] = eval_test_split['train']
+            raw_datasets['test'] = eval_test_split['test']
+        # for larger datasets
+        else:
+            train_test_split = raw_train_dataset.train_test_split(test_size=1000)
+            raw_datasets['train'] = train_test_split['train']
+            raw_datasets['validation'] = train_test_split['test']
+            
+            # for mnli 
+            if args.task_name == "mnli":
+                raw_datasets['test-matched'] = load_dataset("glue", args.task_name, split='validation_matched')
+                raw_datasets['test-mismatched'] = load_dataset("glue", args.task_name, split='validation_mismatched')
+            # other tasks
+            else:
+                raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
     else:
         # Loading the dataset from local csv or json file.
         data_files = {}
@@ -277,6 +333,12 @@ def main():
             data_files["validation"] = args.validation_file
         extension = (args.train_file if args.train_file is not None else args.valid_file).split(".")[-1]
         raw_datasets = load_dataset(extension, data_files=data_files)
+
+    if args.local_rank == 0:
+        logger.info('TRAIN / VALIDATION / TEST split.')
+        for split, dataset in raw_datasets.items():
+            logger.info(f'{split} > {len(dataset)}')
+
 
     # Labels
     if args.task_name is not None:
@@ -297,7 +359,9 @@ def main():
     config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, 
         finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id,
         apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
-        apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim
+        apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
+        apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
+        freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length
     )
 
     # TODO : fix?
@@ -372,8 +436,13 @@ def main():
         torch.distributed.barrier()
 
     train_dataset = processed_datasets["train"]
-    eval_dataset = processed_datasets["validation_matched" if args.task_name == "mnli" else "validation"]
-    test_dataset = processed_datasets["test"]
+    #eval_dataset = processed_datasets["validation_matched" if args.task_name == "mnli" else "validation"]
+    eval_dataset = processed_datasets["validation"]
+    if args.task_name == "mnli":
+        test_dataset = processed_datasets["test-matched"]
+        test_dataset_mm  = processed_datasets["test-mismatched"]
+    else:
+        test_dataset = processed_datasets["test"]
 
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 1):
@@ -386,6 +455,8 @@ def main():
         trainable_param_names.append('prefix')
     if args.apply_adapter:
         trainable_param_names.append('adapter')
+    if args.apply_encoder:
+        trainable_param_names.append('encoder')
 
     # if no trainable_param_names -> full fine tune
     if len(trainable_param_names) > 0:
@@ -398,9 +469,19 @@ def main():
                             logger.info(f'>> TRAIN {name} {param.shape} -> {param.numel()}')
                         param.requires_grad = True
             else:
-                if args.local_rank == 0:
-                    logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
-                param.requires_grad = True
+                if "input_processor.encoder." in name:
+                    if args.freeze_encoder:
+                        param.requires_grad = False
+                    else: 
+                        param.requires_grad = True
+                        if args.local_rank == 0:
+                            logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
+                else:
+                    param.requires_grad = True
+                    if args.local_rank == 0:
+                        logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
+                
+                
 
     # Split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "LayerNorm.weight"]
@@ -418,7 +499,26 @@ def main():
     if args.local_rank == 0:
         num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         num_total_params = sum(p.numel() for p in model.parameters())
+        transformer_params = sum(p.numel() for n,p in model.named_parameters() if n.startswith('transformer'))
         logger.info(f'trainable params {num_trainable_params} / total params {num_total_params} = ratio {100 * num_trainable_params/num_total_params} ')
+        
+
+        
+        parameter_summary_file = os.path.join(args.output_dir, "parameter_summary.txt")
+        with open(parameter_summary_file, "w") as file_writer:
+            file_writer.write("Overall Parameter Summary\n")
+            file_writer.write(f"Trained     parameters\t{num_trainable_params}\n")
+            file_writer.write(f"Transformer parameters\t{transformer_params}\n")
+            file_writer.write(f"Total        parameters\t{num_total_params}\n")
+            file_writer.write(f"Trainable   ratio\t\t{100 * num_trainable_params / num_total_params} \n")
+            file_writer.write("=" * 50 + '\n')
+            file_writer.write("Trained parameters detail\n")
+
+            for name, param in model.named_parameters():
+                if param.requires_grad == True:
+                    file_writer.write(f"{name} > {param.shape} \n")
+    
+
 
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr)
 
@@ -447,7 +547,11 @@ def main():
     eval_sampler = DistributedSampler(eval_dataset)
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)
     test_sampler = DistributedSampler(test_dataset)
-    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)       
+    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)    
+    if args.task_name == "mnli":
+        test_sampler_mm = DistributedSampler(test_dataset_mm)
+        test_dataloader_mm = DataLoader(test_dataset, sampler=test_sampler_mm, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)    
+    
        
      # math around the number of training steps.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -545,8 +649,32 @@ def main():
             )
     test_metric = metric.compute()
     if args.local_rank == 0:
-        writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
-        logger.info(f"TEST results {test_metric}")
+        if args.task_name == "mnli":
+            writer.add_scalar('Test/Accuracy-matched', test_metric['accuracy'])
+            logger.info(f"TEST-matched results {test_metric}")
+        else:
+            writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
+            logger.info(f"TEST results {test_metric}")
+    
+    # for test-mismatched #
+    if args.task_name == "mnli":
+        for step, batch in enumerate(test_dataloader_mm):
+            with torch.no_grad():
+                batch = {k: v.cuda() for k, v in batch.items()}
+                # TODO : fix?
+                # predictions = outputs.logits.argmax(dim=-1)
+                # predictions = outputs.predictions
+                _, predictions = model_engine(**batch)
+                metric.add_batch(
+                    predictions=predictions,
+                    references=batch["labels"],
+                )
+        test_metric = metric.compute()
+        if args.local_rank == 0:
+            if args.task_name == "mnli":
+                writer.add_scalar('Test/Accuracy-mismatched', test_metric['accuracy'])
+                logger.info(f"TEST-mismatched results {test_metric}")
+
 
 if __name__ == "__main__":
     main()

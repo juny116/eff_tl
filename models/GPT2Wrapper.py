@@ -5,7 +5,7 @@ import torch
 
 from transformers import AutoModel
 
-from .InputProcessor import BaseInputProcessor
+from .InputProcessor import *
 from .OutputProcessor import BaseOutputProcessor
 
 
@@ -25,10 +25,21 @@ class GPT2Wrapper(torch.nn.Module):
         self.embedding_dim = self.transformer.wte.embedding_dim
         self.num_labels = config.num_labels
 
-        # for input processing (input_ids -> input_embeddings)
-        self.input_processor = BaseInputProcessor(config=config, embeddings=self.transformer.wte)
         # for output processing (output logits -> loss, prediction)
         self.output_processor = BaseOutputProcessor(config=config,embedding_dim=self.embedding_dim, num_labels=self.num_labels)
+
+        # for input processing (input_ids -> input_embeddings)
+        self.input_processor = BaseInputProcessor(config=config, embeddings=self.transformer.wte)
+        # for PROMPT_TUNING
+        if not self.config.apply_input and not self.config.apply_encoder:
+            self.input_processor = PromptInputProcessor(config=config, embeddings=self.transformer.wte)
+        # for PLM encoder + prompt only
+        elif not self.config.apply_input and self.config.apply_encoder:
+            self.input_processor = PromptEncoderInputProcessor(config=config, embeddings=self.transformer.wte)
+        # for PLM encoder + input dependent
+        elif self.config.apply_input and self.config.apply_encoder:
+            self.input_processor = EncoderInputProcessor(config=config, embeddings=self.transformer.wte)
+        
 
     def forward(
         self,
