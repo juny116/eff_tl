@@ -28,10 +28,12 @@ class GPT2Wrapper(torch.nn.Module):
         # for output processing (output logits -> loss, prediction)
         self.output_processor = BaseOutputProcessor(config=config,embedding_dim=self.embedding_dim, num_labels=self.num_labels)
 
-        # for input processing (input_ids -> input_embeddings)
-        self.input_processor = BaseInputProcessor(config=config, embeddings=self.transformer.wte)
+        # for other methods (LoRA, Adapter, Prefix-tuning)
+        # input_ids -> input_embeds
+        if not self.config.apply_input and not self.config.apply_encoder and self.config.prompt_length is None:
+            self.input_processor = BaseInputProcessor(config=config, embeddings=self.transformer.wte)
         # for PROMPT_TUNING
-        if not self.config.apply_input and not self.config.apply_encoder:
+        elif not self.config.apply_input and not self.config.apply_encoder:
             self.input_processor = PromptInputProcessor(config=config, embeddings=self.transformer.wte)
         # for PLM encoder + prompt only
         elif not self.config.apply_input and self.config.apply_encoder:
