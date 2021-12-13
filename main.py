@@ -255,7 +255,7 @@ def main():
     if args.task_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = DatasetDict()
-        max_train_sample = None
+        max_train_sample = 10000
         if max_train_sample is not None:
             raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{max_train_sample}]')
         else:
@@ -426,10 +426,10 @@ def main():
     #     num_training_steps=args.max_train_steps,
     # )
 
-    model, optimizer, _, _ = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
+    model_engine, optimizer, _, _ = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
 
-    args.per_device_batch_size = model.train_micro_batch_size_per_gpu()
-    args.gradient_accumulation_steps = model.gradient_accumulation_steps()
+    args.per_device_batch_size = model_engine.train_micro_batch_size_per_gpu()
+    args.gradient_accumulation_steps = model_engine.gradient_accumulation_steps()
 
     # DataLoaders creation:
     if args.pad_to_max_length:
@@ -476,18 +476,18 @@ def main():
     best_acc = 0
     best_model_step = 0
     for epoch in range(args.num_train_epochs):
-        model.train()
+        model_engine.train()
         for step, batch in enumerate(train_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
-            outputs = model(**batch)
+            outputs = model_engine(**batch)
             loss = outputs.loss
             loss = loss / args.gradient_accumulation_steps
             if args.local_rank == 0:
-                writer.add_scalar('Train/Loss', loss, model.global_steps)
-            model.backward(loss)
+                writer.add_scalar('Train/Loss', loss, model_engine.global_steps)
+            model_engine.backward(loss)
             if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
                 # model step manages optimizer
-                model.step()
+                model_engine.step()
                 progress_bar.update(1)
                 completed_steps += 1
 
@@ -495,31 +495,37 @@ def main():
             if completed_steps >= args.max_train_steps:
                 break
 
-        model.eval()
+        model_engine.eval()
         for step, batch in enumerate(eval_dataloader):
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
-                outputs = model(**batch)
+                outputs = model_engine(**batch)
                 predictions = outputs.logits.argmax(dim=-1)
                 metric.add_batch(
                     predictions=predictions,
                     references=batch["labels"],
                 )
         eval_metric = metric.compute()
-        model.save_checkpoint(args.output_dir)
+        model_engine.save_checkpoint(args.output_dir)
         if args.local_rank == 0:
             if eval_metric['accuracy'] > best_acc:
                 best_acc = eval_metric['accuracy']
-                best_model_step = model.global_steps
-            writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model.global_steps)
+                best_model_step = model_engine.global_steps
+                store = torch.distributed.distributed_c10d._get_default_store()
+                store.set("best_model_step", str(best_model_step))
+            writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model_engine.global_steps)
             logger.info(f"{eval_metric}")
-
-    # load best dev model
-    model.load_checkpoint(args.output_dir, f'global_step{best_model_step}')
+    
+    # Re-init the model & load best dev model
+    model_engine, _, _, _ = deepspeed.initialize(model=model, config_params=args.ds_config)
+    store = torch.distributed.distributed_c10d._get_default_store()
+    best_model_step = store.get("best_model_step")
+    model_engine.load_checkpoint(args.output_dir, f'global_step{best_model_step.decode("utf-8")}')
+    model_engine.eval()
     for step, batch in enumerate(test_dataloader):
         with torch.no_grad():
             batch = {k: v.cuda() for k, v in batch.items()}
-            outputs = model(**batch)
+            outputs = model_engine(**batch)
             predictions = outputs.logits.argmax(dim=-1)
             metric.add_batch(
                 predictions=predictions,
