@@ -47,7 +47,6 @@ task_to_keys = {
     "wnli": ("sentence1", "sentence2"),
 }
 
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune a transformers model on a text classification task")
     parser.add_argument(
@@ -70,13 +69,7 @@ def parse_args():
         help="A csv or a json file containing the validation data."
     )
     parser.add_argument(
-        '--file_log', 
-        default=False, 
-        action="store_true",
-        help='add file handler to logger'
-    )
-    parser.add_argument(
-        "--max_train_sample",
+        "--max_train_samples",
         default=None,
         help="Maximum train samples to use at train time, slice from raw train dataset for fast experiment purpose",
     )
@@ -215,6 +208,39 @@ def parse_args():
         action="store_true",
         help='apply adapter tuning params'
     )
+
+    ## OURS ##
+    parser.add_argument(
+        '--apply_encoder', 
+        default=False, 
+        action="store_true",
+        help='Apply input dependent encoder.'
+    )
+    parser.add_argument(
+        '--apply_input', 
+        default=False, 
+        action="store_true",
+        help='Apply input for prompt generating.'
+    )
+    parser.add_argument(
+        '--encoder_model_name_or_path', 
+        default='gpt2', 
+        type=str, 
+        help='PLM for encoder.'
+    )
+    parser.add_argument(
+        '--freeze_encoder', 
+        default=False, 
+        action="store_true",
+        help='Freeze PLM for the encoder.'
+    )
+    parser.add_argument(
+        '--prompt_length', 
+        default=None, 
+        type=int, 
+        help='Number of prompt tokens.'
+    )
+    
     args = parser.parse_args()
     
     # Sanity checks
@@ -244,14 +270,10 @@ def main():
     args.world_size = torch.distributed.get_world_size()
 
     # Make one log on every process with the configuration for debugging.
-    handlers=[logging.StreamHandler()]
-    if args.file_log:
-        handlers.append(logging.FileHandler(os.path.join(args.output_dir,"info.log")))
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO,
-        handlers=handlers
+        level=logging.INFO
     )
 
     # Setup logging, we only want one process per machine to log things on the screen.
@@ -279,19 +301,31 @@ def main():
     if args.task_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = DatasetDict()
-        if args.max_train_sample is not None:
-            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{args.max_train_sample}]')
+        if args.max_train_samples is not None:
+            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{args.max_train_samples}]')
         else:
             raw_train_dataset = load_dataset("glue", args.task_name, split=f'train')
         # Since glue test set is not opened, use 1K train as validation and original validation as test
-        train_test_split = raw_train_dataset.train_test_split(test_size=1000)
-        raw_datasets['train'] = train_test_split['train']
-        raw_datasets['validation'] = train_test_split['test']
-        # TODO: add mnli case
-        if args.task_name == 'mnli':
-            raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation_matched')
+        
+        # for small datasets (RTE, ...)
+        if len(raw_train_dataset) < 10000:
+            raw_eval_dataset = load_dataset("glue", args.task_name, split=f'validation')
+            eval_test_split = raw_eval_dataset.train_test_split(test_size=0.5)
+            raw_datasets['train'] = raw_train_dataset
+            raw_datasets['validation'] = eval_test_split['train']
+            raw_datasets['test'] = eval_test_split['test']
+        # for larger datasets
         else:
-            raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
+            train_test_split = raw_train_dataset.train_test_split(test_size=1000)
+            raw_datasets['train'] = train_test_split['train']
+            raw_datasets['validation'] = train_test_split['test']
+            
+            # for mnli 
+            if args.task_name == "mnli":
+                raw_datasets['test'] = load_dataset("glue", args.task_name, split='validation_matched')
+            # other tasks
+            else:
+                raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
     else:
         # Loading the dataset from local csv or json file.
         data_files = {}
@@ -301,6 +335,12 @@ def main():
             data_files["validation"] = args.validation_file
         extension = (args.train_file if args.train_file is not None else args.valid_file).split(".")[-1]
         raw_datasets = load_dataset(extension, data_files=data_files)
+
+    if args.local_rank == 0:
+        logger.info('TRAIN / VALIDATION / TEST split.')
+        for split, dataset in raw_datasets.items():
+            logger.info(f'{split} > {len(dataset)}')
+
 
     # Labels
     if args.task_name is not None:
@@ -321,7 +361,9 @@ def main():
     config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, 
         finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id,
         apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
-        apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim
+        apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
+        apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
+        freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length
     )
 
     # TODO : fix?
@@ -391,6 +433,7 @@ def main():
         torch.distributed.barrier()
 
     train_dataset = processed_datasets["train"]
+    #eval_dataset = processed_datasets["validation_matched" if args.task_name == "mnli" else "validation"]
     eval_dataset = processed_datasets["validation"]
     test_dataset = processed_datasets["test"]
 
@@ -410,7 +453,7 @@ def main():
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)
     test_sampler = DistributedSampler(test_dataset)
     test_dataloader = DataLoader(test_dataset, sampler=test_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)       
-       
+
     # math around the number of training steps.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if args.max_train_steps is None:
@@ -432,6 +475,8 @@ def main():
         trainable_param_names.append('prefix')
     if args.apply_adapter:
         trainable_param_names.append('adapter')
+    if args.apply_encoder:
+        trainable_param_names.append('encoder')
 
     # if no trainable_param_names -> full fine tune
     if len(trainable_param_names) > 0:
@@ -444,9 +489,19 @@ def main():
                             logger.info(f'>> TRAIN {name} {param.shape} -> {param.numel()}')
                         param.requires_grad = True
             else:
-                if args.local_rank == 0:
-                    logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
-                param.requires_grad = True
+                if "input_processor.encoder." in name:
+                    if args.freeze_encoder:
+                        param.requires_grad = False
+                    else: 
+                        param.requires_grad = True
+                        if args.local_rank == 0:
+                            logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
+                else:
+                    param.requires_grad = True
+                    if args.local_rank == 0:
+                        logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
+                
+                
 
     # Split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "LayerNorm.weight"]
@@ -531,11 +586,11 @@ def main():
                 )
         eval_metric = metric.compute()
         if args.local_rank == 0:
+            writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model_engine.global_steps)
+            logger.info(f"Valditaion step {model_engine.global_steps} results {eval_metric}")
             if eval_metric['accuracy'] > best_acc:
                 best_acc = eval_metric['accuracy']
                 save_flag = True            
-                writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model_engine.global_steps)
-                logger.info(f"Valditaion step {model_engine.global_steps} results {eval_metric}")
             else:
                 save_flag = False
         
@@ -561,7 +616,9 @@ def main():
     test_metric = metric.compute()
     if args.local_rank == 0:
         writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
-        logger.info(f"Test results {test_metric}")
+        logger.info(f"TEST results {test_metric}")
+
+
 
 if __name__ == "__main__":
     main()
