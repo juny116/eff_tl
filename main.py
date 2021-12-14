@@ -339,7 +339,6 @@ def main():
         for split, dataset in raw_datasets.items():
             logger.info(f'{split} > {len(dataset)}')
 
-
     # Labels
     if args.task_name is not None:
         label_list = raw_datasets["train"].features["label"].names
@@ -366,12 +365,7 @@ def main():
 
     # TODO : fix?
     model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
-    # model = AutoModelForSequenceClassification.from_pretrained(
-    #     args.model_name_or_path,
-    #     from_tf=bool(".ckpt" in args.model_name_or_path),
-    #     config=config,
-    # )
-
+    
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
 
@@ -469,13 +463,14 @@ def main():
                             logger.info(f'>> TRAIN {name} {param.shape} -> {param.numel()}')
                         param.requires_grad = True
             else:
+                # train PLM encoder?
                 if "input_processor.encoder." in name:
                     if args.freeze_encoder:
                         param.requires_grad = False
                     else: 
                         param.requires_grad = True
                         if args.local_rank == 0:
-                            logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
+                            logger.info(f'>> TRAINED ENCODER {name} {param.shape} -> {param.numel()}')
                 else:
                     param.requires_grad = True
                     if args.local_rank == 0:
@@ -502,14 +497,13 @@ def main():
         transformer_params = sum(p.numel() for n,p in model.named_parameters() if n.startswith('transformer'))
         logger.info(f'trainable params {num_trainable_params} / total params {num_total_params} = ratio {100 * num_trainable_params/num_total_params} ')
         
-
-        
+        ## Write parameter info ##
         parameter_summary_file = os.path.join(args.output_dir, "parameter_summary.txt")
         with open(parameter_summary_file, "w") as file_writer:
             file_writer.write("Overall Parameter Summary\n")
             file_writer.write(f"Trained     parameters\t{num_trainable_params}\n")
             file_writer.write(f"Transformer parameters\t{transformer_params}\n")
-            file_writer.write(f"Total        parameters\t{num_total_params}\n")
+            file_writer.write(f"Total       parameters\t{num_total_params}\n")
             file_writer.write(f"Trainable   ratio\t\t{100 * num_trainable_params / num_total_params} \n")
             file_writer.write("=" * 50 + '\n')
             file_writer.write("Trained parameters detail\n")
