@@ -365,8 +365,9 @@ def main():
         freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length
     )
 
-    # TODO : fix?
+    ## set model ##
     model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
 
@@ -431,7 +432,6 @@ def main():
         torch.distributed.barrier()
 
     train_dataset = processed_datasets["train"]
-    #eval_dataset = processed_datasets["validation_matched" if args.task_name == "mnli" else "validation"]
     eval_dataset = processed_datasets["validation"]
     test_dataset = processed_datasets["test"]
 
@@ -479,6 +479,7 @@ def main():
     # if no trainable_param_names -> full fine tune
     if len(trainable_param_names) > 0:
         for name, param in model.named_parameters():
+            # train main model? (== fine-tuning)
             if name.startswith('deberta') or name.startswith('roberta') or name.startswith('transformer'):
                 param.requires_grad = False
                 for trainable_param_name in trainable_param_names:
@@ -536,8 +537,6 @@ def main():
                 if param.requires_grad == True:
                     file_writer.write(f"{name} > {param.shape} \n")
     
-
-
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr)
 
     lr_scheduler = get_scheduler(
@@ -575,7 +574,6 @@ def main():
         model_engine.train()
         for step, batch in enumerate(train_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
-            # TODO : fix?
             loss, _ = model_engine(**batch)
             loss = loss / args.gradient_accumulation_steps
             if args.local_rank == 0:
@@ -595,7 +593,6 @@ def main():
         for step, batch in enumerate(eval_dataloader):
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
-                # TODO : fix?
                 loss, predictions = model_engine(**batch)
                 
                 metric.add_batch(
@@ -635,8 +632,6 @@ def main():
     if args.local_rank == 0:
         writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
         logger.info(f"TEST results {test_metric}")
-
-
 
 if __name__ == "__main__":
     main()
