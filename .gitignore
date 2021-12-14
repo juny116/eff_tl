@@ -1,10 +1,11 @@
+# Custom files
+ds_configs
+scripts
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-pretrained_checkpoints/
-out/
-sst2_gpt2_xl/
 
 # C extensions
 *.so
