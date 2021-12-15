@@ -170,7 +170,6 @@ class GPT2Attention(nn.Module):
             self.q_attn = Conv1D(self.embed_dim, self.embed_dim)
         else:
             if config.apply_lora:
-                self.c_attn = Conv1D(3 * self.embed_dim, self.embed_dim)
                 self.c_attn = lora.MergedLinear(
                                     self.embed_dim, self.embed_dim * 3, 
                                     r=config.lora_r, 

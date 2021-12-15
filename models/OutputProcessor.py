@@ -1,12 +1,7 @@
-
-
-
-
 from typing import Tuple
 
 import torch
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
-
 
 class BaseOutputProcessor(torch.nn.Module):
     def __init__(self, config, embedding_dim, num_labels):
@@ -18,6 +13,7 @@ class BaseOutputProcessor(torch.nn.Module):
 
         # final layer for prediction
         self.score = torch.nn.Linear(self.embedding_dim, self.num_labels, bias=False)
+        # self.score.to(dtype=torch.half, non_blocking=True)
 
     def forward(
         self,
