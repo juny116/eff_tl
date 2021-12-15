@@ -343,7 +343,6 @@ def main():
         for split, dataset in raw_datasets.items():
             logger.info(f'{split} > {len(dataset)}')
 
-
     # Labels
     if args.task_name is not None:
         label_list = raw_datasets["train"].features["label"].names
@@ -439,7 +438,6 @@ def main():
         torch.distributed.barrier()
 
     train_dataset = processed_datasets["train"]
-    #eval_dataset = processed_datasets["validation_matched" if args.task_name == "mnli" else "validation"]
     eval_dataset = processed_datasets["validation"]
     test_dataset = processed_datasets["test"]
 
@@ -487,6 +485,7 @@ def main():
     # if no trainable_param_names -> full fine tune
     if len(trainable_param_names) > 0:
         for name, param in model.named_parameters():
+            # train main model? (== fine-tuning)
             if name.startswith('deberta') or name.startswith('roberta') or name.startswith('transformer'):
                 param.requires_grad = False
                 for trainable_param_name in trainable_param_names:
@@ -495,13 +494,14 @@ def main():
                             logger.info(f'>> TRAIN {name} {param.shape} -> {param.numel()}')
                         param.requires_grad = True
             else:
+                # train PLM encoder?
                 if "input_processor.encoder." in name:
                     if args.freeze_encoder:
                         param.requires_grad = False
                     else: 
                         param.requires_grad = True
                         if args.local_rank == 0:
-                            logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
+                            logger.info(f'>> TRAINED ENCODER {name} {param.shape} -> {param.numel()}')
                 else:
                     param.requires_grad = True
                     if args.local_rank == 0:
@@ -523,7 +523,24 @@ def main():
     if args.local_rank == 0:
         num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         num_total_params = sum(p.numel() for p in model.parameters())
+        transformer_params = sum(p.numel() for n,p in model.named_parameters() if n.startswith('transformer'))
+        logger.info(f'trainable params {num_trainable_params} / total params {num_total_params} = ratio {100 * num_trainable_params/num_total_params} ')
+        
+        ## Write parameter info ##
+        parameter_summary_file = os.path.join(args.output_dir, "parameter_summary.txt")
+        with open(parameter_summary_file, "w") as file_writer:
+            file_writer.write("Overall Parameter Summary\n")
+            file_writer.write(f"Trained     parameters\t{num_trainable_params}\n")
+            file_writer.write(f"Transformer parameters\t{transformer_params}\n")
+            file_writer.write(f"Total       parameters\t{num_total_params}\n")
+            file_writer.write(f"Trainable   ratio\t\t{100 * num_trainable_params / num_total_params} \n")
+            file_writer.write("=" * 50 + '\n')
+            file_writer.write("Trained parameters detail\n")
 
+            for name, param in model.named_parameters():
+                if param.requires_grad == True:
+                    file_writer.write(f"{name} > {param.shape} \n")
+    
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr)
 
     lr_scheduler = get_scheduler(
@@ -560,7 +577,6 @@ def main():
         model_engine.train()
         for step, batch in enumerate(train_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
-            # TODO : fix?
             loss, _ = model_engine(**batch)
             loss = loss / args.gradient_accumulation_steps
             if args.local_rank == 0:
@@ -580,7 +596,6 @@ def main():
         for step, batch in enumerate(eval_dataloader):
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
-                # TODO : fix?
                 loss, predictions = model_engine(**batch)
                 
                 metric.add_batch(
@@ -621,8 +636,6 @@ def main():
         if args.local_rank == 0:
             writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
             logger.info(f"TEST results {test_metric}")
-
-
 
 if __name__ == "__main__":
     main()
