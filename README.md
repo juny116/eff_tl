@@ -15,9 +15,9 @@
 
 |Method         | DDP   | FP16  | ZeRO1 | ZeRO2 | ZeRO3 |
 |---            |---    |---    |---    |---    |---    |
-|Fine tuning    |O      |O      |O      |O      |X      |
+|Fine tuning    |O      |O      |O      |O      |O      |
 |LoRA           |O      |O      |O      |O      |X      |
-|Prefix tuning  |O      |O      |O      |O      |X      |
+|Prefix tuning  |O      |O      |O      |O      |O      |
 |Adapter H      |X      |X      |X      |X      |X      |
 |Adapter P      |X      |X      |X      |X      |X      |
 |Prompt tuning  |X      |X      |X      |X      |X      |
