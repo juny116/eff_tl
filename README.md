@@ -15,7 +15,7 @@
 
 |Method         | DDP   | FP16  | ZeRO1 | ZeRO2 | ZeRO3 |
 |---            |---    |---    |---    |---    |---    |
-|Fine tuning    |O      |O      |O      |O      |O      |
+|Fine tuning    |O      |O      |O      |O      |X      |
 |LoRA           |O      |O      |O      |O      |X      |
 |Prefix tuning  |O      |O      |O      |O      |X      |
 |Adapter H      |X      |X      |X      |X      |X      |
@@ -27,10 +27,10 @@
 
 ## Benchmark Results
 ### GPT2-XL (1.5B)
-|Method         |PARAM | MNLI 10%   | SST-2 | RTE   |MNLI   |
+|Method         |PARAM | MNLI 10% m | SST-2 | RTE   |MNLI   |
 |---            |---   |---         |---    |---    |---    |
 |Fine tuning    |100%  |            |       |       |       |
-|LoRA           |      |            |       |       |       |
+|LoRA           |0.47  |83.6        |       |       |       |
 |Prefix tuning  |      |            |       |       |       |
 |Adapter H      |      |            |       |       |       |
 |Adapter P      |      |            |       |       |       |
