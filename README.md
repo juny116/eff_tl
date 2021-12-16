@@ -27,14 +27,16 @@
 
 ## Benchmark Results
 ### GPT2-XL (1.5B)
-|Method         |PARAM | MNLI 10% m | SST-2 | RTE   |MNLI   |
-|---            |---   |---         |---    |---    |---    |
-|Fine tuning    |100%  |            |       |       |       |
-|LoRA           |0.47  |83.6        |       |       |       |
-|Prefix tuning  |0.48  |83.0        |       |       |       |
-|Adapter H      |      |            |       |       |       |
-|Adapter P      |      |            |       |       |       |
-|Prompt tuning  |      |            |       |       |       |
+|Method            |PARAM | MNLI 10% m | SST-2 | RTE   |MNLI   |
+|---               |---   |---         |---    |---    |---    |
+|Fine tuning       |100%  |            |       |       |       |
+|LoRA              |0.47  |83.6        |       |       |       |
+|Prefix tuning     |      |            |       |       |       |
+|Adapter H         |      |            |       |       |       |
+|Adapter P         |      |            |       |       |       |
+|Prompt tuning     |      |            |       |       |       |
+|IGPG              |0.744 |82.28       |       |       |       |
+|IGPG (prompt-only)|0.746 |82.52       |       |       |       |
 
 
 ## Dataset split details
