@@ -280,6 +280,16 @@ def main():
 
     # Setup logging, we only want one process per machine to log things on the screen.
     logger.setLevel(logging.INFO if args.local_rank == 0 else logging.ERROR)
+
+    if args.local_rank == 0:
+        if args.output_dir is not None:
+            os.makedirs(args.output_dir, exist_ok=True)
+    logging_output_file = os.path.join(args.output_dir, "output.log")
+    file_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    file_handler = logging.FileHandler(logging_output_file)
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+
     if args.local_rank == 0:
         datasets.utils.logging.set_verbosity_warning()
         transformers.utils.logging.set_verbosity_info()
@@ -293,8 +303,8 @@ def main():
 
     # Handle the repository creation & SummaryWriter
     if args.local_rank == 0:
-        if args.output_dir is not None:
-            os.makedirs(args.output_dir, exist_ok=True)
+        # if args.output_dir is not None:
+        #     os.makedirs(args.output_dir, exist_ok=True)
         save_config(args)
         writer = SummaryWriter(args.output_dir)
 
@@ -404,7 +414,8 @@ def main():
         model.config.label2id = label_to_id
         model.config.id2label = {id: label for label, id in config.label2id.items()}
     elif args.task_name is not None:
-        logger.info('Auto label2id, id2label created')
+        if args.local_rank == 0:
+            logger.info('Auto label2id, id2label created')
         model.config.label2id = {l: i for i, l in enumerate(label_list)}
         model.config.id2label = {id: label for label, id in config.label2id.items()}
 
@@ -441,9 +452,10 @@ def main():
     eval_dataset = processed_datasets["validation"]
     test_dataset = processed_datasets["test"]
 
-    # Log a few random samples from the training set:
-    for index in random.sample(range(len(train_dataset)), 1):
-        logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+    if args.local_rank == 0:
+        # Log a few random samples from the training set:
+        for index in random.sample(range(len(train_dataset)), 1):
+            logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
     # DataLoaders creation:
     if args.pad_to_max_length:
