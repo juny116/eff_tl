@@ -50,9 +50,22 @@
 ### GPT2-XL (1.5B)
 |Method            |PARAM | MNLI 10% m | SST-2 | RTE   |MNLI   |
 |---               |---   |---         |---    |---    |---    |
+|Fine tuning       |100   |            |       |       |       |
 |IGPG              |0.744 |82.28       |       |       |       |
 |IGPG (prompt-only)|0.746 |82.52       |       |       |       |
 
 ### Architecture
 ![image](https://user-images.githubusercontent.com/29649894/146302775-d910694e-3f34-44f6-92a4-de7b17cfd53f.png)
-
+- IDPG : 12620096 / 1694671104 (0.744%)
+  - output_processor.score.weight > [3, 1600]
+  - input_processor.encoder_generator.0.weight > [384, 768]
+  - input_processor.encoder_generator.0.bias > [384]
+  - input_processor.encoder_generator.2.weight > [32000, 384]
+  - input_processor.encoder_generator.2.bias > [32000]
+- IDPG (prompt-only) : 12635456 / 1694686464 (0.746%)
+  - output_processor.score.weight > [3, 1600]
+  - input_processor.encoder_generator.0.weight > [384, 768]
+  - input_processor.encoder_generator.0.bias > [384]
+  - input_processor.encoder_generator.2.weight > [32000, 384]
+  - input_processor.encoder_generator.2.bias > [32000]
+  - input_processor.encoder_prompt_embeddings.weight > [20, 768]
