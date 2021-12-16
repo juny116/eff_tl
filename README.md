@@ -52,3 +52,7 @@
 |---               |---   |---         |---    |---    |---    |
 |IGPG              |0.744 |82.28       |       |       |       |
 |IGPG (prompt-only)|0.746 |82.52       |       |       |       |
+
+### Architecture
+![image](https://user-images.githubusercontent.com/29649894/146302775-d910694e-3f34-44f6-92a4-de7b17cfd53f.png)
+
