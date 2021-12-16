@@ -53,8 +53,8 @@
 |Method            |PARAM | MNLI 10% m | SST-2 | RTE   |MNLI   |
 |---               |---   |---         |---    |---    |---    |
 |Fine tuning       |100   |            |       |       |       |
-|IGPG              |0.744 |82.28       |       |       |       |
-|IGPG (prompt-only)|0.746 |82.52       |       |       |       |
+|IDPG              |0.744 |82.28       |       |       |       |
+|IDPG (prompt-only)|0.746 |82.52       |       |       |       |
 
 ## All Results
 |Method            |PARAM   |Task       |Learning Rate|Train Epochs|Warmup Step|Accuracy    |
