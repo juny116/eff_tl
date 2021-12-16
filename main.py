@@ -261,6 +261,8 @@ def parse_args():
     args.gradient_accumulation_steps = ds_config['gradient_accumulation_steps']
     if ds_config.get("zero_optimization"):
         args.is_zero3 = ds_config["zero_optimization"]["stage"] == 3
+    else:
+        args.is_zero3 = False
 
     return args
 
