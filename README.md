@@ -38,21 +38,24 @@
 
 
 ## Dataset split details
-|Dataset        |Train   | Validation | Test      |
-|---            |---     |---         |---        |
-|MNLI           | 392702 |9815 / 9832 |9796 / 9847|
-|SST-2          | -      |     -      |    -      |
-|RTE            | -      |     -      |    -      |
+|Dataset        |Train   | Validation  | Test      |
+|---            |---     |---          |---        |
+|MNLI           | 392702 | 9815 / 9832 |9796 / 9847|
+|SST-2          | -      |     -       |    -      |
+|RTE            | 2490   |     277     |    -      |
 
 ----
 
-## Input Dependent Prompt
+# Input Dependent Prompt
+## Best Results
 ### GPT2-XL (1.5B)
 |Method            |PARAM | MNLI 10% m | SST-2 | RTE   |MNLI   |
 |---               |---   |---         |---    |---    |---    |
 |Fine tuning       |100   |            |       |       |       |
 |IGPG              |0.744 |82.28       |       |       |       |
 |IGPG (prompt-only)|0.746 |82.52       |       |       |       |
+
+## All Results
 
 ### Architecture
 ![image](https://user-images.githubusercontent.com/29649894/146304303-9a773178-470b-4a96-8026-e832d51bcb48.png)
