@@ -38,11 +38,12 @@
 
 
 ## Dataset split details
-|Dataset        |Train   | Validation  | Test      |
-|---            |---     |---          |---        |
-|MNLI           | 392702 | 9815 / 9832 |9796 / 9847|
-|SST-2          | -      |     -       |    -      |
-|RTE            | 2490   |     277     |    -      |
+|Dataset        |Train    | Validation    | Test        |
+|---            |---      |---            |---          |
+|MNLI           | 392,702 | 9,815 / 9,832 |9,796 / 9,847|
+|RTE            | 2,490   |     277       |    3,000    |
+|MRPC           | 3,668   |     408       |    1,725    |
+|SST-2          | 67,349  |     872       |    1,821    |
 
 ----
 
@@ -56,22 +57,36 @@
 |IGPG (prompt-only)|0.746 |82.52       |       |       |       |
 
 ## All Results
-|Method            |PARAM |Task       |Learning Rate|Train Epochs|Warmup Step|Accuracy    |
-|---               |---   |---        |---          |---         |---        |---         |
-|---               |---   |---        |---          |---         |---        |---         |
-|IGPG              |100   |MNLI 10% m |1e-4         |40          |1,000      |58.39       |
-|IGPG              |100   |MNLI 10% m |5e-5         |40          |1,000      |<b>82.28</b>|
-|IGPG              |100   |MNLI 10% m |1e-5         |40          |1,000      |76.09       |
-|IGPG (prompt only)|100   |MNLI 10% m |1e-4         |40          |1,000      |<b>82.52</b>|
-|IGPG (prompt only)|100   |MNLI 10% m |5e-5         |40          |1,000      |-           |
-|IGPG (prompt only)|100   |MNLI 10% m |1e-5         |40          |1,000      |76.26       |
-|---               |---   |---        |---          |---         |---        |---         |
-|IGPG              |100   |RTE        |5e-3         |120         |1,000      |58.87       |
-|IGPG              |100   |RTE        |1e-3         |120         |1,000      |56.74       |
-|IGPG              |100   |RTE        |5e-4         |120         |1,000      |53.19       |
-|IGPG (prompt only)|100   |RTE        |5e-3         |120         |1,000      |     |
-|IGPG (prompt only)|100   |RTE        |1e-3         |120         |1,000      | |
-|IGPG (prompt only)|100   |RTE        |5e-4         |120         |1,000      |     |
+|Method            |PARAM   |Task       |Learning Rate|Train Epochs|Warmup Step|Accuracy    |
+|---               |---     |---        |---          |---         |---        |---         |
+|---               |---     |---        |---          |---         |---        |---         |
+|IGPG              |0.744   |MNLI 10% m |1e-4         |40          |1,000      |58.39       |
+|IGPG              |0.744   |MNLI 10% m |5e-5         |40          |1,000      |<b>82.28</b>|
+|IGPG              |0.744   |MNLI 10% m |1e-5         |40          |1,000      |76.09       |
+|IGPG (prompt only)|0.746   |MNLI 10% m |1e-4         |40          |1,000      |<b>82.52</b>|
+|IGPG (prompt only)|0.746   |MNLI 10% m |5e-5         |40          |1,000      |-           |
+|IGPG (prompt only)|0.746   |MNLI 10% m |1e-5         |40          |1,000      |76.26       |
+|---               |---     |---        |---          |---         |---        |---         |
+|IGPG              |0.744   |RTE        |5e-3         |120         |1,000      |58.87       |
+|IGPG              |0.744   |RTE        |1e-3         |120         |1,000      |56.74       |
+|IGPG              |0.744   |RTE        |5e-4         |120         |1,000      |53.19       |
+|IGPG (prompt only)|0.746   |RTE        |5e-3         |120         |1,000      |-           |
+|IGPG (prompt only)|0.746   |RTE        |1e-3         |120         |1,000      |-           |
+|IGPG (prompt only)|0.746   |RTE        |5e-4         |120         |1,000      |-           |
+|---               |---     |---        |---          |---         |---        |---         |
+|IGPG              |0.744   |RTE        |5e-3         |120         |100        |55.32       |
+|IGPG              |0.744   |RTE        |1e-3         |120         |100        |-           |
+|IGPG              |0.744   |RTE        |5e-4         |120         |100        |-           |
+|IGPG (prompt only)|0.746   |RTE        |5e-3         |120         |100        |-           |
+|IGPG (prompt only)|0.746   |RTE        |1e-3         |120         |100        |-           |
+|IGPG (prompt only)|0.746   |RTE        |5e-4         |120         |100        |-           |
+|---               |---     |---        |---          |---         |---        |---         |
+|IGPG              |0.744   |MRPC       |5e-3         |120         |100        |-           |
+|IGPG              |0.744   |MRPC       |1e-3         |120         |100        |-           |
+|IGPG              |0.744   |MRPC       |5e-4         |120         |100        |-           |
+|IGPG (prompt only)|0.746   |MRPC       |5e-3         |120         |100        |-           |
+|IGPG (prompt only)|0.746   |MRPC       |1e-3         |120         |100        |-           |
+|IGPG (prompt only)|0.746   |MRPC       |5e-4         |120         |100        |-           |
 
 ## Architecture
 ![image](https://user-images.githubusercontent.com/29649894/146304303-9a773178-470b-4a96-8026-e832d51bcb48.png)
