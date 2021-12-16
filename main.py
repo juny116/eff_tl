@@ -198,7 +198,7 @@ def parse_args():
     )
     parser.add_argument(
         '--mid_dim', 
-        default=128, 
+        default=16, 
         type=int, 
         help='reparameterization dim'
     )
@@ -254,11 +254,13 @@ def parse_args():
             extension = args.validation_file.split(".")[-1]
             assert extension in ["csv", "json"], "`validation_file` should be a csv or a json file."
 
-    # post init get batch from ds config
+    # post init get batch and zero option from ds config
     with open(args.ds_config, "r", encoding="utf-8") as ds_f:
         ds_config = json.load(ds_f)
     args.per_device_batch_size = ds_config['train_micro_batch_size_per_gpu']
     args.gradient_accumulation_steps = ds_config['gradient_accumulation_steps']
+    if ds_config.get("zero_optimization"):
+        args.is_zero3 = ds_config["zero_optimization"]["stage"] == 3
 
     return args
 
@@ -365,8 +367,12 @@ def main():
         freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length
     )
 
-    ## set model ##
-    model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+    # TODO : fix?
+    if args.is_zero3:
+        with deepspeed.zero.Init(config_dict_or_path=args.ds_config):
+            model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+    else:
+        model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
 
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
@@ -501,8 +507,6 @@ def main():
                     if args.local_rank == 0:
                         logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
                 
-                
-
     # Split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
@@ -547,8 +551,7 @@ def main():
     )
 
     model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
-
-
+    # model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
     # Train!
     if args.local_rank == 0:
         total_batch_size = args.per_device_batch_size * args.world_size * args.gradient_accumulation_steps
@@ -616,22 +619,23 @@ def main():
             model_engine.save_checkpoint(args.output_dir)
     
     # load best dev model 
-    # TODO: ZeRO3 might not work!!
-    model_engine.load_checkpoint(args.output_dir)
-    model_engine.eval()
-    for step, batch in enumerate(test_dataloader):
-        with torch.no_grad():
-            batch = {k: v.cuda() for k, v in batch.items()}
-            # TODO : fix?
-            _, predictions = model_engine(**batch)
-            metric.add_batch(
-                predictions=predictions,
-                references=batch["labels"],
-            )
-    test_metric = metric.compute()
-    if args.local_rank == 0:
-        writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
-        logger.info(f"TEST results {test_metric}")
+    # TODO: In ZeRO3 load checkpoint after save checkpoint do not work!!
+    if not args.is_zero3:
+        model_engine.load_checkpoint(args.output_dir)
+        model_engine.eval()
+        for step, batch in enumerate(test_dataloader):
+            with torch.no_grad():
+                batch = {k: v.cuda() for k, v in batch.items()}
+                # TODO : fix?
+                _, predictions = model_engine(**batch)
+                metric.add_batch(
+                    predictions=predictions,
+                    references=batch["labels"],
+                )
+        test_metric = metric.compute()
+        if args.local_rank == 0:
+            writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
+            logger.info(f"TEST results {test_metric}")
 
 if __name__ == "__main__":
     main()
