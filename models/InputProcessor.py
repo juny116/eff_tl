@@ -38,12 +38,9 @@ class PromptInputProcessor(BaseInputProcessor):
 
         self.encoder_prompt_length = self.config.prompt_length
         assert self.encoder_prompt_length > 0, f'Prompt length must be greater than 0, got {self.encoder_prompt_length}.'
-        # shape : (prompt_length, )
-        self.encoder_prompt_inputs = torch.LongTensor(list(range(self.encoder_prompt_length)))
-        # shape : (prompt_length, embedding_dim)
+
         self.encoder_prompt_embeddings = torch.nn.Embedding(self.encoder_prompt_length, self.embedding_dim)
-        # shape : (prompt_length, )
-        self.encoder_prompt_attention_mask = torch.ones(self.encoder_prompt_length)
+
                 
     def forward(
         self,
@@ -56,13 +53,15 @@ class PromptInputProcessor(BaseInputProcessor):
         # shape : (batch, length, embedding_dim)
         input_embeddings = self.embeddings(input_ids)
 
+        encoder_prompt_inputs = torch.LongTensor(list(range(self.encoder_prompt_length))).to(input_embeddings.device)
         # shape : (prompt_length, embedding_dim)
-        prompt_embeddings = self.encoder_prompt_embeddings(self.encoder_prompt_inputs)
+        prompt_embeddings = self.encoder_prompt_embeddings(encoder_prompt_inputs)
         # shape : (batch, prompt_length, embedding_dim)
         prompt_embeddings = prompt_embeddings.unsqueeze(0).expand(batch_size, self.encoder_prompt_length, -1)
 
         # shape : (batch, prompt_length)
-        prompt_attention_mask = self.encoder_prompt_attention_mask.unsqueeze(0).expand(batch_size, self.encoder_prompt_length)
+        encoder_prompt_attention_mask = torch.ones(self.encoder_prompt_length).to(input_embeddings.device)
+        prompt_attention_mask = encoder_prompt_attention_mask.unsqueeze(0).expand(batch_size, self.encoder_prompt_length)
 
         input_embeddings = torch.cat([prompt_embeddings, input_embeddings], dim=1)
         attention_mask = torch.cat([prompt_attention_mask, attention_mask], dim=1)

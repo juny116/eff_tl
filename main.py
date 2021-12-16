@@ -94,12 +94,6 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
-        "--per_device_batch_size",
-        type=int,
-        default=8,
-        help="Batch size (per device) for the training dataloader.",
-    )
-    parser.add_argument(
         "--lr",
         type=float,
         default=5e-5,
@@ -233,6 +227,12 @@ def parse_args():
         default=False, 
         action="store_true",
         help='Freeze PLM for the encoder.'
+    )
+    parser.add_argument(
+        '--apply_prompt', 
+        default=False, 
+        action="store_true",
+        help='apply prompt tuning'
     )
     parser.add_argument(
         '--prompt_length', 
@@ -481,12 +481,14 @@ def main():
         trainable_param_names.append('adapter')
     if args.apply_encoder:
         trainable_param_names.append('encoder')
+    if args.apply_prompt:
+        trainable_param_names.append('prompt_embeddings')
 
     # if no trainable_param_names -> full fine tune
     if len(trainable_param_names) > 0:
         for name, param in model.named_parameters():
             # train main model? (== fine-tuning)
-            if name.startswith('deberta') or name.startswith('roberta') or name.startswith('transformer'):
+            if name.startswith('transformer'):
                 param.requires_grad = False
                 for trainable_param_name in trainable_param_names:
                     if trainable_param_name in name:
