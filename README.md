@@ -44,6 +44,7 @@
 |SST-2          | -      |     -      |    -      |
 |RTE            | -      |     -      |    -      |
 
+----
 
 ## Input Dependent Prompt
 ### GPT2-XL (1.5B)
