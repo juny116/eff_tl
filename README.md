@@ -31,7 +31,7 @@
 |---            |---   |---         |---    |---    |---    |
 |Fine tuning    |100%  |            |       |       |       |
 |LoRA           |0.47  |83.6        |       |       |       |
-|Prefix tuning  |      |            |       |       |       |
+|Prefix tuning  |0.48  |83.0        |       |       |       |
 |Adapter H      |      |            |       |       |       |
 |Adapter P      |      |            |       |       |       |
 |Prompt tuning  |      |            |       |       |       |
