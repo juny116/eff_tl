@@ -55,7 +55,8 @@
 |IGPG (prompt-only)|0.746 |82.52       |       |       |       |
 
 ### Architecture
-![image](https://user-images.githubusercontent.com/29649894/146302775-d910694e-3f34-44f6-92a4-de7b17cfd53f.png)
+![image](https://user-images.githubusercontent.com/29649894/146304303-9a773178-470b-4a96-8026-e832d51bcb48.png)
+
 - IDPG : 12620096 / 1694671104 (0.744%)
   - output_processor.score.weight > [3, 1600]
   - input_processor.encoder_generator.0.weight > [384, 768]
