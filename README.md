@@ -56,8 +56,24 @@
 |IGPG (prompt-only)|0.746 |82.52       |       |       |       |
 
 ## All Results
+|Method            |PARAM |Task       |Learning Rate|Train Epochs|Warmup Step|Accuracy    |
+|---               |---   |---        |---          |---         |---        |---         |
+|---               |---   |---        |---          |---         |---        |---         |
+|IGPG              |100   |MNLI 10% m |1e-4         |40          |1,000      |58.39       |
+|IGPG              |100   |MNLI 10% m |5e-5         |40          |1,000      |<b>82.28</b>|
+|IGPG              |100   |MNLI 10% m |1e-5         |40          |1,000      |76.09       |
+|IGPG (prompt only)|100   |MNLI 10% m |1e-4         |40          |1,000      |<b>82.52</b>|
+|IGPG (prompt only)|100   |MNLI 10% m |5e-5         |40          |1,000      |-           |
+|IGPG (prompt only)|100   |MNLI 10% m |1e-5         |40          |1,000      |76.26       |
+|---               |---   |---        |---          |---         |---        |---         |
+|IGPG              |100   |RTE        |5e-3         |120         |1,000      |58.87       |
+|IGPG              |100   |RTE        |1e-3         |120         |1,000      |56.74       |
+|IGPG              |100   |RTE        |5e-4         |120         |1,000      |53.19       |
+|IGPG (prompt only)|100   |RTE        |5e-3         |120         |1,000      |     |
+|IGPG (prompt only)|100   |RTE        |1e-3         |120         |1,000      | |
+|IGPG (prompt only)|100   |RTE        |5e-4         |120         |1,000      |     |
 
-### Architecture
+## Architecture
 ![image](https://user-images.githubusercontent.com/29649894/146304303-9a773178-470b-4a96-8026-e832d51bcb48.png)
 
 - IDPG : 12620096 / 1694671104 (0.744%)
