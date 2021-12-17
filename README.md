@@ -28,7 +28,7 @@
 ## Benchmark Results
 ### GPT2-XL (1.5B)
 |Method            |PARAM | MNLI 10% m | SST-2 | RTE   |MNLI   |MRPC |
-|---               |---   |---         |---    |---    |---    |     |
+|---               |---   |---         |---    |---    |---    |---  |
 |Fine tuning       |100%  |            |       |76.6   |       |     |
 |LoRA              |0.47  |83.6        |       |       |       |     |
 |Prefix tuning     |0.48  |83.1        |       |       |       |     |
