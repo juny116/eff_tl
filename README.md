@@ -94,6 +94,13 @@
 |IDPG (prompt only)|0.746   |MRPC       |5e-3         |120         |100        |-           |
 |IDPG (prompt only)|0.746   |MRPC       |1e-3         |120         |100        |-           |
 |IDPG (prompt only)|0.746   |MRPC       |5e-4         |120         |100        |-           |
+|---               |---     |---        |---          |---         |---        |---         |
+|IDPG              |0.744   |SST-2      |1e-4         |40          |1,000      |            |
+|IDPG              |0.744   |SST-2      |5e-5         |40          |1,000      |            |
+|IDPG              |0.744   |SST-2      |1e-5         |40          |1,000      |            |
+|IDPG (prompt only)|0.746   |SST-2      |1e-4         |40          |1,000      |            |
+|IDPG (prompt only)|0.746   |SST-2      |5e-5         |40          |1,000      |            |
+|IDPG (prompt only)|0.746   |SST-2      |1e-5         |40          |1,000      |            |
 - RTE는 validation set에서는 68% 정도까지 성능이 나오는데, test set에서는 성능이 왜 저렇게 낮게 나오는지 의문... 테스트하는 데이터가 적어서 그런가 (validation : 138 / test : 139)
 - 학습 다 하고 마지막에 test accuracy 측정할 때 이런 오류가 나서 모델을 로드 못하는 경우가 생김.
     ![image](https://user-images.githubusercontent.com/29649894/146470309-78a8ed25-d3a2-46c8-b07e-e74300a626c5.png)
