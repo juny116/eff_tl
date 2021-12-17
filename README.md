@@ -18,9 +18,9 @@
 |Fine tuning    |O      |O      |O      |O      |O      |
 |LoRA           |O      |O      |O      |O      |X      |
 |Prefix tuning  |O      |O      |O      |O      |O      |
-|Adapter H      |X      |X      |X      |X      |X      |
-|Adapter P      |X      |X      |X      |X      |X      |
-|Prompt tuning  |X      |X      |X      |X      |X      |
+|Adapter H      |O      |O      |O      |-      |-      |
+|Adapter P      |O      |O      |O      |-      |-      |
+|Prompt tuning  |O      |O      |O      |O      |O      |
 |IDPG (Original)|O      |O      |O      |O      |X      |
 |IDPG (Trained) |O      |O      |O      |O      |X      |
 
@@ -67,9 +67,19 @@
 |IDPG (prompt only)|0.746   |MNLI 10% m |5e-5         |40          |1,000      |-           |
 |IDPG (prompt only)|0.746   |MNLI 10% m |1e-5         |40          |1,000      |76.26       |
 |---               |---     |---        |---          |---         |---        |---         |
+|Fine-tuning       |100     |RTE        |1e-4         |20          |1,000      |-           |
+|Fine-tuning       |100     |RTE        |5e-5         |20          |1,000      |76.6        |
+|Fine-tuning       |100     |RTE        |1e-5         |20          |1,000      |-           |
+|IDPG              |0.744   |RTE        |5e-2         |120         |1,000      |54.61       |
+|IDPG              |0.744   |RTE        |1e-2         |120         |1,000      |<b>60.99</b>|
 |IDPG              |0.744   |RTE        |5e-3         |120         |1,000      |58.87       |
 |IDPG              |0.744   |RTE        |1e-3         |120         |1,000      |56.74       |
 |IDPG              |0.744   |RTE        |5e-4         |120         |1,000      |53.19       |
+|IDPG              |0.744   |RTE        |1e-4         |120         |1,000      |오류         |
+|IDPG              |0.744   |RTE        |5e-5         |120         |1,000      |53.90       |
+|IDPG              |0.744   |RTE        |1e-5         |120         |1,000      |오류         |
+|IDPG (prompt only)|0.744   |RTE        |5e-2         |120         |1,000      |-           |
+|IDPG (prompt only)|0.744   |RTE        |1e-2         |120         |1,000      |-           |
 |IDPG (prompt only)|0.746   |RTE        |5e-3         |120         |1,000      |-           |
 |IDPG (prompt only)|0.746   |RTE        |1e-3         |120         |1,000      |-           |
 |IDPG (prompt only)|0.746   |RTE        |5e-4         |120         |1,000      |-           |
@@ -87,7 +97,14 @@
 |IDPG (prompt only)|0.746   |MRPC       |5e-3         |120         |100        |-           |
 |IDPG (prompt only)|0.746   |MRPC       |1e-3         |120         |100        |-           |
 |IDPG (prompt only)|0.746   |MRPC       |5e-4         |120         |100        |-           |
-- RTE는 validation set에서는 68% 정도까지 성능이 나오는데, test set에서는 성능이 왜 저렇게 낮게 나오는지 의문... 테스트하는 데이터가 적어서 그런가 (validation : 138 / test : 139)
+|---               |---     |---        |---          |---         |---        |---         |
+|IDPG              |0.744   |SST-2      |1e-4         |40          |1,000      |            |
+|IDPG              |0.744   |SST-2      |5e-5         |40          |1,000      |            |
+|IDPG              |0.744   |SST-2      |1e-5         |40          |1,000      |            |
+|IDPG (prompt only)|0.746   |SST-2      |1e-4         |40          |1,000      |            |
+|IDPG (prompt only)|0.746   |SST-2      |5e-5         |40          |1,000      |            |
+|IDPG (prompt only)|0.746   |SST-2      |1e-5         |40          |1,000      |            |
+
 
 ## Architecture
 ![image](https://user-images.githubusercontent.com/29649894/146304303-9a773178-470b-4a96-8026-e832d51bcb48.png)
