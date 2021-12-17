@@ -22,8 +22,7 @@
 |Adapter H      |O      |O      |O      |-      |-      |
 |Adapter P      |O      |O      |O      |-      |-      |
 |Prompt tuning  |O      |O      |O      |O      |O      |
-|IDPG (Original)|O      |O      |O      |O      |X      |
-|IDPG (Trained) |O      |O      |O      |O      |X      |
+|IDPG           |O      |O      |O      |O      |?      |
 
 
 ## Benchmark Results
@@ -37,7 +36,7 @@
 |Adapter P         |      |            |       |       |       |
 |Prompt tuning     |      |            |       |       |       |
 |IDPG              |0.744 |82.28       |       |       |       |
-|IDPG (prompt-only)|0.746 |82.52       |       |       |       |
+|PG                |0.746 |82.52       |       |       |       |
 
 
 
