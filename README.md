@@ -20,7 +20,7 @@
 |Prefix tuning  |O      |O      |O      |O      |O      |
 |Adapter H      |X      |X      |X      |X      |X      |
 |Adapter P      |X      |X      |X      |X      |X      |
-|Prompt tuning  |X      |X      |X      |X      |X      |
+|Prompt tuning  |O      |O      |O      |O      |O      |
 |IDPG (Original)|O      |O      |O      |O      |X      |
 |IDPG (Trained) |O      |O      |O      |O      |X      |
 
