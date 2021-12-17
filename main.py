@@ -17,7 +17,6 @@ from transformers.deepspeed import HfDeepSpeedConfig
 from transformers import (
     AdamW,
     AutoConfig,
-    AutoModelForSequenceClassification,
     AutoTokenizer,
     DataCollatorWithPadding,
     PretrainedConfig,
@@ -283,9 +282,10 @@ def main():
     # Setup logging, we only want one process per machine to log things on the screen.
     logger.setLevel(logging.INFO if args.local_rank == 0 else logging.ERROR)
 
-    if args.local_rank == 0:
-        if args.output_dir is not None:
+    if args.output_dir is not None:
+        if not os.path.isdir(args.output_dir):
             os.makedirs(args.output_dir, exist_ok=True)
+            
     logging_output_file = os.path.join(args.output_dir, "output.log")
     file_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
     file_handler = logging.FileHandler(logging_output_file)
