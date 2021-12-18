@@ -621,6 +621,8 @@ def main():
         eval_metric = metric.compute()
         if args.local_rank == 0:
             writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model_engine.global_steps)
+            if "f1" in eval_metric.keys():
+                writer.add_scalar('Validation/F1', eval_metric['f1'], model_engine.global_steps)
             logger.info(f"Valditaion step {model_engine.global_steps} results {eval_metric}")
             if eval_metric['accuracy'] > best_acc:
                 best_acc = eval_metric['accuracy']
@@ -642,7 +644,6 @@ def main():
         for step, batch in enumerate(test_dataloader):
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
-                # TODO : fix?
                 _, predictions = model_engine(**batch)
                 metric.add_batch(
                     predictions=predictions,
@@ -651,6 +652,8 @@ def main():
         test_metric = metric.compute()
         if args.local_rank == 0:
             writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
+            if "f1" in test_metric.keys():
+                writer.add_scalar('Validation/F1', test_metric['f1'], model_engine.global_steps)
             logger.info(f"TEST results {test_metric}")
 
 if __name__ == "__main__":
