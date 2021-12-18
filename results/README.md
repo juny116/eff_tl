@@ -96,3 +96,7 @@
 |IDPG              |0.744   |SST-2      |             |            |           |            |
 |PG                |0.746   |SST-2      |             |            |           |            |
 |---               |---     |---        |---          |---         |---        |---         |
+
+# GLUE Learderboard
+
+![image](https://user-images.githubusercontent.com/29649894/146649318-c57bd7e4-7d01-46d5-8ae9-061b3487069e.png)
