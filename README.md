@@ -34,7 +34,7 @@
 |Prefix tuning     |0.48  |83.1        |       |       |       |     |
 |Adapter H         |      |            |       |       |       |     |
 |Adapter P         |      |            |       |       |       |     |
-|Prompt tuning     |      |            |       |       |       |     |
+|Prompt tuning     |0.005 |80.0        |       |       |       |     |
 |IDPG              |0.744 |82.28       |       |       |       |     |
 |PG                |0.746 |82.52       |       |       |       |     |
 
