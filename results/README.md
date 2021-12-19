@@ -3,7 +3,7 @@
 ## All Results
 
 ### GPT2(encoder) - GPT2-XL(main model)
-|Method            |PARAM   |Task       |Learning Rate|Train Epochs|Warmup Step|Accuracy    |
+|Method            |PARAM   |Task       |Learning Rate|Train Epochs|Warmup Step|Accuracy/F1 |
 |---               |---     |---        |---          |---         |---        |---         |
 |---               |---     |---        |---          |---         |---        |---         |
 |IDPG              |0.744   |MNLI 10% m |1e-4         |40          |1,000      |58.39       |
@@ -38,12 +38,12 @@
 |PG                |0.746   |RTE        |1e-3         |120         |100        |-           |
 |PG                |0.746   |RTE        |5e-4         |120         |100        |-           |
 |---               |---     |---        |---          |---         |---        |---         |
-|IDPG              |0.744   |MRPC       |5e-3         |200         |100        |-           |
-|IDPG              |0.744   |MRPC       |1e-3         |200         |100        |-           |
-|IDPG              |0.744   |MRPC       |5e-4         |200         |100        |-           |
-|PG                |0.746   |MRPC       |5e-3         |200         |100        |-           |
-|PG                |0.746   |MRPC       |1e-3         |200         |100        |-           |
-|PG                |0.746   |MRPC       |5e-4         |200         |100        |-           |
+|IDPG              |0.744   |MRPC       |5e-3         |150         |100        |-           |
+|IDPG              |0.744   |MRPC       |1e-3         |150         |100        |-           |
+|IDPG              |0.744   |MRPC       |5e-4         |150         |100        |-           |
+|PG                |0.746   |MRPC       |5e-3         |150         |100        |-           |
+|PG                |0.746   |MRPC       |1e-3         |150         |100        |-           |
+|PG                |0.746   |MRPC       |5e-4         |150         |100        |-           |
 |---               |---     |---        |---          |---         |---        |---         |
 |IDPG              |0.744   |SST-2      |5e-3         |30          |1,000      |-           |
 |IDPG              |0.744   |SST-2      |1e-3         |30          |1,000      |-           |
