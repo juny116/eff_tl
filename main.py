@@ -142,6 +142,12 @@ def parse_args():
         help="Where to store the final model."
     )
     parser.add_argument(
+        '--overwrite_output_dir', 
+        default=False, 
+        action="store_true",
+        help='Overwrite output directory.'
+    )
+    parser.add_argument(
         "--seed", 
         type=int, 
         default=None, 
@@ -285,6 +291,10 @@ def main():
     if args.output_dir is not None:
         if not os.path.isdir(args.output_dir):
             os.makedirs(args.output_dir, exist_ok=True)
+        else:
+            if not args.overwrite_output_dir:
+                logger.info(f'Output directory {args.output_dir} exits. Exit program. (overwrite_output_dir=False)')
+                exit()
             
     logging_output_file = os.path.join(args.output_dir, "output.log")
     file_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
@@ -458,6 +468,27 @@ def main():
         # Log a few random samples from the training set:
         for index in random.sample(range(len(train_dataset)), 1):
             logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+
+        """ FOR ANALYSIS
+        labels2count = {}
+        for dataset in train_dataset:
+            label = dataset['labels']
+            labels2count[label] = labels2count.get(label, 0) + 1
+        logger.info(f'TRAIN splits : {labels2count}')
+
+        labels2count = {}
+        for dataset in eval_dataset:
+            label = dataset['labels']
+            labels2count[label] = labels2count.get(label, 0) + 1
+        logger.info(f'VALID splits : {labels2count}')
+
+        labels2count = {}
+        for dataset in test_dataset:
+            label = dataset['labels']
+            labels2count[label] = labels2count.get(label, 0) + 1
+        logger.info(f'TEST splits : {labels2count}')
+        """
+
 
     # DataLoaders creation:
     if args.pad_to_max_length:
@@ -653,7 +684,7 @@ def main():
         if args.local_rank == 0:
             writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
             if "f1" in test_metric.keys():
-                writer.add_scalar('Validation/F1', test_metric['f1'], model_engine.global_steps)
+                writer.add_scalar('Test/F1', test_metric['f1'], model_engine.global_steps)
             logger.info(f"TEST results {test_metric}")
 
 if __name__ == "__main__":
