@@ -1,3 +1,21 @@
+## Dataset split details
+
+|Dataset        |Train    | Validation    | Test        |
+|---            |---      |---            |---          |
+|MNLI-40000     | 392,702 | 9,815 / 9,832 |9,796 / 9,847|
+|RTE            | 2,490   |     277       |    3,000    |
+|MRPC           | 3,668   |     408       |    1,725    |
+|SST-2          | 67,349  |     872       |    1,821    |
+
+## Samples per label
+
+|Dataset        |Seed |Train                  | Validation    | Test        |
+|---            |---  |---                    |---            |---          |
+|MNLI-40000     |1234 | 11802 / 14011 / 13187 | 338 / 342 / 320 | 3123 / 3213 / 3479|
+|RTE            |1234 | 1241 / 1249           | 76 / 62 | 69 / 70 |
+|MRPC           |1234 | -                 |    -      |    -    |
+|SST-2          |1234 | -                |     -       |    -    |
+
 # Expertiment Results
 
 ## All Results
