@@ -389,10 +389,11 @@ class GPT2Block(nn.Module):
             self.crossattention = GPT2Attention(config, is_cross_attention=True)
             self.ln_cross_attn = nn.LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
 
+        self.adapter_type = config.adapter_type
         if config.apply_adapter:
-            if config.adapter_type == 'houlsby':
+            if self.adapter_type == 'houlsby':
                 self.attention_adapter = Adapter(hidden_size, config.adapter_size, 'swish')
-            self.output_adapter = Adapter(config.hidden_size, config.adapter_size, 'swish' if config.adapter_type == 'houlsby' else 'relu')
+            self.output_adapter = Adapter(hidden_size, config.adapter_size, 'swish' if self.adapter_type == 'houlsby' else 'relu')
 
         self.mlp = GPT2MLP(inner_dim, config)
 
@@ -453,6 +454,8 @@ class GPT2Block(nn.Module):
         # residual connection
         if hasattr(self, 'output_adapter'):
             hidden_states = self.output_adapter(feed_forward_hidden_states, residual=residual)
+            # if self.adapter_type == 'pfeiffer':
+            #     hidden_states = self.ln_3(hidden_states)
         else:
             hidden_states = residual + feed_forward_hidden_states
 
