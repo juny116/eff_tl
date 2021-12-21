@@ -1,7 +1,5 @@
 # Experiment Results
 
-## IDPG
-
 ### GPT2(encoder) - GPT2-XL(main model)
 
 |Method            |SEED |PARAM   |Task       |Learning Rate|Train Epochs|Warmup Step|Accuracy      |
