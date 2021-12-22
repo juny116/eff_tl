@@ -86,15 +86,33 @@ deepspeed main.py
 ![image](https://user-images.githubusercontent.com/29649894/146304303-9a773178-470b-4a96-8026-e832d51bcb48.png)
 
 - IDPG : 12620096 / 1694671104 (0.744%)
-  - output_processor.score.weight > [3, 1600]
-  - input_processor.encoder_generator.0.weight > [384, 768]
-  - input_processor.encoder_generator.0.bias > [384]
-  - input_processor.encoder_generator.2.weight > [32000, 384]
-  - input_processor.encoder_generator.2.bias > [32000]
-- IDPG (prompt-only) : 12635456 / 1694686464 (0.746%)
-  - output_processor.score.weight > [3, 1600]
-  - input_processor.encoder_generator.0.weight > [384, 768]
-  - input_processor.encoder_generator.0.bias > [384]
-  - input_processor.encoder_generator.2.weight > [32000, 384]
-  - input_processor.encoder_generator.2.bias > [32000]
-  - input_processor.encoder_prompt_embeddings.weight > [20, 768]
+
+|Name                                       |Param       |
+|---                                        |---         |
+|output_processor.score.weight              |[3, 1600]   |
+|input_processor.encoder_generator.0.weight |[384, 768]  |
+|input_processor.encoder_generator.0.bias   |[384]       |
+|input_processor.encoder_generator.2.weight |[32000, 384]|
+|input_processor.encoder_generator.2.bias   |[32000]     |
+
+- PG : 12635456 / 1694686464 (0.746%)
+
+|Name                                             |Param       |
+|---                                              |---         |
+|output_processor.score.weight                    |[3, 1600]   |
+|input_processor.encoder_generator.0.weight       |[384, 768]  |
+|input_processor.encoder_generator.0.bias         |[384]       |
+|input_processor.encoder_generator.2.weight       |[32000, 384]|
+|input_processor.encoder_generator.2.bias         |[32000]     |
+|input_processor.encoder_prompt_embeddings.weight |[20, 768]   |
+
+- Reparameterization : 12619264 / 1570230464 (0.804%)
+
+|Name                                             |Param       |
+|---                                              |---         |
+|output_processor.score.weight                    |[2, 1600]   |
+|input_processor.encoder_generator.0.weight       |[384, 768]  |
+|input_processor.encoder_generator.0.bias         |[384]       |
+|input_processor.encoder_generator.2.weight       |[32000, 384]|
+|input_processor.encoder_generator.2.bias         |[32000]     |
+|input_processor.encoder_prompt_embeddings.weight |[1, 768]    |
