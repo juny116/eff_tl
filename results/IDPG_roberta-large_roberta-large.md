@@ -1,6 +1,6 @@
 # Experiment Results
 
-### BERT(encoder) - BERT(main model)
+### RoBERTa-large(encoder) - RoBERTa(main model)
 
 |Method            |PARAM   |Task       |Learning Rate|Train Epochs|Warmup Step|Accuracy    |
 |---               |---     |---        |---          |---         |---        |---         |
