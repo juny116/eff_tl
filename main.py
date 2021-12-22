@@ -607,8 +607,9 @@ def main():
         num_training_steps=args.max_train_steps,
     )
 
-    # model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
-    model_engine, optimizer, _, _ = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
+    model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
+    #model_engine, optimizer, _, _ = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
+    
     # Train!
     if args.local_rank == 0:
         total_batch_size = args.per_device_batch_size * args.world_size * args.gradient_accumulation_steps
