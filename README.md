@@ -1,14 +1,40 @@
 # Efficient transfer learning
 
 ## Installation
-* Install requirements
-  * pip install -r requirements
-* Install DeepSpeed
-  * DDP~ZeRO1 -> pip install deepspeed
-  * DDP~ZeRO3 -> install from source https://www.deepspeed.ai/tutorials/advanced-install/
-* Install custom transformers
-  * pip install -e .
-
+1. Install requirements
+```bash
+pip install -r requirements
+```
+2. Install Custom Transformers Library
+```bash
+pip install -e .
+```
+3. Install DeepSpeed
+  * If we only want to use <code>DDP~ZeRO1</code>
+  ```bash
+  pip install deepspeed
+  ```
+  * For <code>DDP~ZeRO3</code> -> install from source https://www.deepspeed.ai/tutorials/advanced-install/
+  ```bash
+  cd eff_tl
+  
+  git clone https://github.com/microsoft/DeepSpeed/
+  
+  cd DeepSpeed
+  
+  rm -rf build
+  
+  # use an appropriate version for TORCH_CUDA_ARCH_LIST
+  TORCH_CUDA_ARCH_LIST="6.1;8.6" DS_BUILD_OPS=1 pip install . \
+   --global-option="build_ext" --global-option="-j8" --no-cache -v \
+   --disable-pip-version-check 2>&1 | tee build.log
+  ```
+  * [Troubleshooting] : you may want to install following libraries
+  ```bash
+  sudo apt install libaio-dev
+  sudo apt install cmake
+  ```
+    
 ## How to run
 ```
 deepspeed main.py 
