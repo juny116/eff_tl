@@ -310,6 +310,7 @@ class IDPGProcessor(BaseInputProcessor):
         encoder_embeddings = encoder_outputs.last_hidden_state
 
         # shape : (batch, encoder_embedding_dim)
+        # [CLS] token
         input_dependent_representation = encoder_embeddings[:,0,:]
                 
         # sequence_lengths = torch.ne(attention_mask, 0).sum(-1) - 1
@@ -323,11 +324,16 @@ class IDPGProcessor(BaseInputProcessor):
         # prompt attention mask
         # shape : (batch, encoder_prompt_length)
         input_dependent_attention_mask = torch.ones((batch_size, self.encoder_prompt_length)).to(expanded_input_dependent_representation.device)
-        cls_embeddings = input_embeddings[:,0,:].reshape(batch_size, 1, -1)
+        # shape : (batch, 1, embedding)
+        cls_embeddings = input_embeddings[:,0,:].unsqueeze(1)
+        # shape : (batch, length-1, embedding)
+        input_embeddings = input_embeddings[:,1:,:]
+
 
         # shape : (batch, prompt+max_length, embedding_dim)
         # CLS + prompt + input
-        final_input_embeddings = torch.cat([cls_embeddings, expanded_input_dependent_representation, input_embeddings[:,1:,:]], dim=1)
+        #final_input_embeddings = torch.cat([cls_embeddings, expanded_input_dependent_representation, input_embeddings[:,1:,:]], dim=1)
+        final_input_embeddings = torch.cat([cls_embeddings, expanded_input_dependent_representation, input_embeddings], dim=1)
         # shape : (batch, prompt+max_length)
         final_attention_mask = torch.cat([input_dependent_attention_mask, attention_mask], dim=1)
 
