@@ -1,14 +1,40 @@
 # Efficient transfer learning
 
 ## Installation
-* Install requirements
-  * pip install -r requirements
-* Install DeepSpeed
-  * DDP~ZeRO1 -> pip install deepspeed
-  * DDP~ZeRO3 -> install from source https://www.deepspeed.ai/tutorials/advanced-install/
-* Install custom transformers
-  * pip install -e .
-
+1. Install requirements
+```bash
+pip install -r requirements
+```
+2. Install Custom Transformers Library
+```bash
+pip install -e .
+```
+3. Install DeepSpeed
+  * If we only want to use <code>DDP~ZeRO1</code>
+  ```bash
+  pip install deepspeed
+  ```
+  * For <code>DDP~ZeRO3</code> -> install from source https://www.deepspeed.ai/tutorials/advanced-install/
+  ```bash
+  cd eff_tl
+  
+  git clone https://github.com/microsoft/DeepSpeed/
+  
+  cd DeepSpeed
+  
+  rm -rf build
+  
+  # use an appropriate version for TORCH_CUDA_ARCH_LIST
+  TORCH_CUDA_ARCH_LIST="6.1;8.6" DS_BUILD_OPS=1 pip install . \
+   --global-option="build_ext" --global-option="-j8" --no-cache -v \
+   --disable-pip-version-check 2>&1 | tee build.log
+  ```
+  * [Troubleshooting] : you may want to install following libraries
+  ```bash
+  sudo apt install libaio-dev
+  sudo apt install cmake
+  ```
+    
 ## How to run
 ```
 deepspeed main.py 
@@ -60,15 +86,33 @@ deepspeed main.py
 ![image](https://user-images.githubusercontent.com/29649894/146304303-9a773178-470b-4a96-8026-e832d51bcb48.png)
 
 - IDPG : 12620096 / 1694671104 (0.744%)
-  - output_processor.score.weight > [3, 1600]
-  - input_processor.encoder_generator.0.weight > [384, 768]
-  - input_processor.encoder_generator.0.bias > [384]
-  - input_processor.encoder_generator.2.weight > [32000, 384]
-  - input_processor.encoder_generator.2.bias > [32000]
-- IDPG (prompt-only) : 12635456 / 1694686464 (0.746%)
-  - output_processor.score.weight > [3, 1600]
-  - input_processor.encoder_generator.0.weight > [384, 768]
-  - input_processor.encoder_generator.0.bias > [384]
-  - input_processor.encoder_generator.2.weight > [32000, 384]
-  - input_processor.encoder_generator.2.bias > [32000]
-  - input_processor.encoder_prompt_embeddings.weight > [20, 768]
+
+|Name                                       |Param       |
+|---                                        |---         |
+|output_processor.score.weight              |[3, 1600]   |
+|input_processor.encoder_generator.0.weight |[384, 768]  |
+|input_processor.encoder_generator.0.bias   |[384]       |
+|input_processor.encoder_generator.2.weight |[32000, 384]|
+|input_processor.encoder_generator.2.bias   |[32000]     |
+
+- PG : 12635456 / 1694686464 (0.746%)
+
+|Name                                             |Param       |
+|---                                              |---         |
+|output_processor.score.weight                    |[3, 1600]   |
+|input_processor.encoder_generator.0.weight       |[384, 768]  |
+|input_processor.encoder_generator.0.bias         |[384]       |
+|input_processor.encoder_generator.2.weight       |[32000, 384]|
+|input_processor.encoder_generator.2.bias         |[32000]     |
+|input_processor.encoder_prompt_embeddings.weight |[20, 768]   |
+
+- Reparameterization : 12619264 / 1570230464 (0.804%)
+
+|Name                                             |Param       |
+|---                                              |---         |
+|output_processor.score.weight                    |[2, 1600]   |
+|input_processor.encoder_generator.0.weight       |[384, 768]  |
+|input_processor.encoder_generator.0.bias         |[384]       |
+|input_processor.encoder_generator.2.weight       |[32000, 384]|
+|input_processor.encoder_generator.2.bias         |[32000]     |
+|input_processor.encoder_prompt_embeddings.weight |[1, 768]    |
