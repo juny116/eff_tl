@@ -10,7 +10,13 @@
   * pip install -e .
 
 ## How to run
-* e.g. deepspeed main.py --task_name sst2 --model_name_or_path gpt2-xl --ds_config ds_configs/ddp.json --output_dir OUTPATH
+```
+deepspeed main.py 
+ --task_name sst2 
+ --model_name_or_path gpt2-xl 
+ --ds_config ds_configs/ddp.json 
+ --output_dir OUTPATH
+```
 
 ## Implementation & Tests
 
