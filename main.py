@@ -30,6 +30,8 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 
 from model_wrapper.GPT2Wrapper import GPT2Wrapper
+from model_wrapper.RobertaWrapper import RobertaWrapper
+
 from utils import save_config, set_value_to_shared_json_file, get_value_from_shared_json_file
 
 logger = logging.getLogger(__name__)
@@ -381,20 +383,22 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
     # TODO: only inject pad_token_id in case of GPT
-    config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, 
-        finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id,
-        apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
-        apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
-        apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
-        freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length
-    )
-
+    # config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, 
+    #     finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id,
+    #     apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
+    #     apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
+    #     apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
+    #     freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length
+    # )
+    config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name, classifier_dropout=0.1)
     # TODO : fix?
     if args.is_zero3:
         with deepspeed.zero.Init(config_dict_or_path=args.ds_config):
-            model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+            # model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+            model = RobertaWrapper(config=config, model_name_or_path=args.model_name_or_path)
     else:
-        model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+        # model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+        model = RobertaWrapper(config=config, model_name_or_path=args.model_name_or_path)
 
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
@@ -436,7 +440,7 @@ def main():
     def preprocess_function(examples):
         # Tokenize the texts
         texts = (
-            (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key])
+            (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key],)
         )
         result = tokenizer(*texts, padding=padding, max_length=args.max_length, truncation=True)
 
@@ -467,7 +471,7 @@ def main():
     if args.local_rank == 0:
         # Log a few random samples from the training set:
         for index in random.sample(range(len(train_dataset)), 1):
-            logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+            logger.info(f"Sample {index} of the training set: {train_dataset[index]} {tokenizer.decode(train_dataset[index]['input_ids'])}")
 
         """ FOR ANALYSIS
         labels2count = {}
@@ -488,7 +492,6 @@ def main():
             labels2count[label] = labels2count.get(label, 0) + 1
         logger.info(f'TEST splits : {labels2count}')
         """
-
 
     # DataLoaders creation:
     if args.pad_to_max_length:
@@ -517,25 +520,26 @@ def main():
         metric = load_metric("accuracy", num_process=args.world_size, process_id=args.local_rank)
 
     # Set params to train
-    trainable_param_names = []
+    plm_trainable_param_names = []
     if args.apply_lora:
-        trainable_param_names.append('lora')
+        plm_trainable_param_names.append('lora')
     if args.apply_prefix:
-        trainable_param_names.append('prefix')
+        plm_trainable_param_names.append('prefix')
     if args.apply_adapter:
-        trainable_param_names.append('adapter')
+        plm_trainable_param_names.append('adapter')
+    other_trainable_param_names = []
     if args.apply_encoder:
-        trainable_param_names.append('encoder')
+        other_trainable_param_names.append('encoder')
     if args.apply_prompt:
-        trainable_param_names.append('prompt_embeddings')
+        other_trainable_param_names.append('prompt_embeddings')
 
     # if no trainable_param_names -> full fine tune
-    if len(trainable_param_names) > 0:
+    if len(plm_trainable_param_names) > 0 or len(other_trainable_param_names) > 0:
         for name, param in model.named_parameters():
             # train main model? (== fine-tuning)
             if name.startswith('transformer'):
                 param.requires_grad = False
-                for trainable_param_name in trainable_param_names:
+                for trainable_param_name in plm_trainable_param_names:
                     if trainable_param_name in name:
                         if args.local_rank == 0:
                             logger.info(f'>> TRAIN {name} {param.shape} -> {param.numel()}')
@@ -597,8 +601,8 @@ def main():
         num_training_steps=args.max_train_steps,
     )
 
-    model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
-    # model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
+    # model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
+    model_engine, optimizer, _, _ = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
     # Train!
     if args.local_rank == 0:
         total_batch_size = args.per_device_batch_size * args.world_size * args.gradient_accumulation_steps

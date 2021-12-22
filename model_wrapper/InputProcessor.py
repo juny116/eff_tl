@@ -206,3 +206,73 @@ class PromptEncoderInputProcessor(EncoderInputProcessor):
         # input_embeddings : (batch, length, embedding_dim)
         # attention_mask   : (batch, length)
         return final_input_embeddings, final_attention_mask
+
+
+
+#### for roberta #####
+
+
+## BASELINE ##
+## Architecture from IDPG
+## for input-dependent processor
+class IDPGProcessor(BaseInputProcessor):
+    def __init__(self, config, embeddings):
+        super().__init__(config, embeddings)
+
+        self.encoder_prompt_length = 5
+        assert self.encoder_prompt_length > 0, f'Prompt length must be greater than 0, got {self.encoder_prompt_length}.'
+        
+        # PLM encoder
+        self.encoder = AutoModel.from_pretrained('roberta-large')
+        self.encoder_embedding_dim = config.hidden_size
+        self.encoder_generator = torch.nn.Sequential(torch.nn.Linear(self.encoder_embedding_dim, self.encoder_embedding_dim // 2),
+                                                    torch.nn.ReLU(),
+                                                    torch.nn.Linear(self.encoder_embedding_dim // 2, self.embedding_dim * self.encoder_prompt_length))
+                
+    def forward(
+        self,
+        input_ids:torch.Tensor, 
+        attention_mask:torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+
+        batch_size, length = input_ids.shape
+
+        ## original input ##
+        # shape : (batch, length, embedding_dim)
+        input_embeddings = self.embeddings(input_ids)
+
+        ## input dependent prompt ##
+        encoder_outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        # shape : (batch, length, encoder_embedding_dim)
+        encoder_embeddings = encoder_outputs.last_hidden_state
+
+        # shape : (batch, encoder_embedding_dim)
+        input_dependent_representation = encoder_embeddings[:,0,:]
+                
+        # sequence_lengths = torch.ne(attention_mask, 0).sum(-1) - 1
+        # input_dependent_representation = encoder_embeddings[range(batch_size), sequence_lengths]
+
+        # shape : (batch, embedding_dim * encoder_prompt_length)
+        input_dependent_representation = self.encoder_generator(input_dependent_representation)
+        # shape : (batch, encoder_prompt_length, embedding_dim)
+        expanded_input_dependent_representation = input_dependent_representation.reshape(batch_size, self.encoder_prompt_length, self.embedding_dim)
+                
+        # prompt attention mask
+        # shape : (batch, encoder_prompt_length)
+        input_dependent_attention_mask = torch.ones((batch_size, self.encoder_prompt_length)).to(expanded_input_dependent_representation.device)
+        cls_embeddings = input_embeddings[:,0,:].reshape(batch_size, 1, -1)
+
+        # shape : (batch, prompt+max_length, embedding_dim)
+        # CLS + prompt + input
+        final_input_embeddings = torch.cat([cls_embeddings, expanded_input_dependent_representation, input_embeddings[:,1:,:]], dim=1)
+        # shape : (batch, prompt+max_length)
+        final_attention_mask = torch.cat([input_dependent_attention_mask, attention_mask], dim=1)
+
+        assert batch_size == final_input_embeddings.shape[0]
+        assert length+self.encoder_prompt_length == final_input_embeddings.shape[1]
+        assert batch_size == final_attention_mask.shape[0]
+        assert length+self.encoder_prompt_length == final_attention_mask.shape[1]
+
+        # input_embeddings : (batch, length, embedding_dim)
+        # attention_mask   : (batch, length)
+        return final_input_embeddings, final_attention_mask
