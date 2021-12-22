@@ -29,7 +29,7 @@ import deepspeed
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 
-from models.GPT2Wrapper import GPT2Wrapper
+from model_wrapper.GPT2Wrapper import GPT2Wrapper
 from utils import save_config, set_value_to_shared_json_file, get_value_from_shared_json_file
 
 logger = logging.getLogger(__name__)
