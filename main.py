@@ -17,7 +17,6 @@ from transformers.deepspeed import HfDeepSpeedConfig
 from transformers import (
     AdamW,
     AutoConfig,
-    AutoModelForSequenceClassification,
     AutoTokenizer,
     DataCollatorWithPadding,
     PretrainedConfig,
@@ -141,6 +140,12 @@ def parse_args():
         type=str, 
         default=None, 
         help="Where to store the final model."
+    )
+    parser.add_argument(
+        '--overwrite_output_dir', 
+        default=False, 
+        action="store_true",
+        help='Overwrite output directory.'
     )
     parser.add_argument(
         "--seed", 
@@ -282,6 +287,21 @@ def main():
 
     # Setup logging, we only want one process per machine to log things on the screen.
     logger.setLevel(logging.INFO if args.local_rank == 0 else logging.ERROR)
+
+    if args.output_dir is not None:
+        if not os.path.isdir(args.output_dir):
+            os.makedirs(args.output_dir, exist_ok=True)
+        else:
+            if not args.overwrite_output_dir:
+                logger.info(f'Output directory {args.output_dir} exits. Exit program. (overwrite_output_dir=False)')
+                exit()
+            
+    logging_output_file = os.path.join(args.output_dir, "output.log")
+    file_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    file_handler = logging.FileHandler(logging_output_file)
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+
     if args.local_rank == 0:
         datasets.utils.logging.set_verbosity_warning()
         transformers.utils.logging.set_verbosity_info()
@@ -295,8 +315,8 @@ def main():
 
     # Handle the repository creation & SummaryWriter
     if args.local_rank == 0:
-        if args.output_dir is not None:
-            os.makedirs(args.output_dir, exist_ok=True)
+        # if args.output_dir is not None:
+        #     os.makedirs(args.output_dir, exist_ok=True)
         save_config(args)
         writer = SummaryWriter(args.output_dir)
 
@@ -406,7 +426,8 @@ def main():
         model.config.label2id = label_to_id
         model.config.id2label = {id: label for label, id in config.label2id.items()}
     elif args.task_name is not None:
-        logger.info('Auto label2id, id2label created')
+        if args.local_rank == 0:
+            logger.info('Auto label2id, id2label created')
         model.config.label2id = {l: i for i, l in enumerate(label_list)}
         model.config.id2label = {id: label for label, id in config.label2id.items()}
 
@@ -443,9 +464,31 @@ def main():
     eval_dataset = processed_datasets["validation"]
     test_dataset = processed_datasets["test"]
 
-    # Log a few random samples from the training set:
-    for index in random.sample(range(len(train_dataset)), 1):
-        logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+    if args.local_rank == 0:
+        # Log a few random samples from the training set:
+        for index in random.sample(range(len(train_dataset)), 1):
+            logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+
+        """ FOR ANALYSIS
+        labels2count = {}
+        for dataset in train_dataset:
+            label = dataset['labels']
+            labels2count[label] = labels2count.get(label, 0) + 1
+        logger.info(f'TRAIN splits : {labels2count}')
+
+        labels2count = {}
+        for dataset in eval_dataset:
+            label = dataset['labels']
+            labels2count[label] = labels2count.get(label, 0) + 1
+        logger.info(f'VALID splits : {labels2count}')
+
+        labels2count = {}
+        for dataset in test_dataset:
+            label = dataset['labels']
+            labels2count[label] = labels2count.get(label, 0) + 1
+        logger.info(f'TEST splits : {labels2count}')
+        """
+
 
     # DataLoaders creation:
     if args.pad_to_max_length:
@@ -609,6 +652,8 @@ def main():
         eval_metric = metric.compute()
         if args.local_rank == 0:
             writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model_engine.global_steps)
+            if "f1" in eval_metric.keys():
+                writer.add_scalar('Validation/F1', eval_metric['f1'], model_engine.global_steps)
             logger.info(f"Valditaion step {model_engine.global_steps} results {eval_metric}")
             if eval_metric['accuracy'] > best_acc:
                 best_acc = eval_metric['accuracy']
@@ -630,7 +675,6 @@ def main():
         for step, batch in enumerate(test_dataloader):
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
-                # TODO : fix?
                 _, predictions = model_engine(**batch)
                 metric.add_batch(
                     predictions=predictions,
@@ -639,6 +683,8 @@ def main():
         test_metric = metric.compute()
         if args.local_rank == 0:
             writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
+            if "f1" in test_metric.keys():
+                writer.add_scalar('Test/F1', test_metric['f1'], model_engine.global_steps)
             logger.info(f"TEST results {test_metric}")
 
 if __name__ == "__main__":

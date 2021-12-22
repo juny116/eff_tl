@@ -10,7 +10,14 @@
   * pip install -e .
 
 ## How to run
-* e.g. deepspeed main.py --task_name sst2 --model_name_or_path gpt2-xl --ds_config ds_configs/ddp.json --output_dir OUTPATH
+```
+deepspeed main.py 
+ --task_name sst2 
+ --model_name_or_path gpt2-xl 
+ --ds_config ds_configs/ddp.json 
+ --output_dir OUTPATH
+```
+
 ## Implementation & Tests
 
 |Method         | DDP   | FP16  | ZeRO1 | ZeRO2 | ZeRO3 |
@@ -18,23 +25,25 @@
 |Fine tuning    |O      |O      |O      |O      |O      |
 |LoRA           |O      |O      |O      |O      |X      |
 |Prefix tuning  |O      |O      |O      |O      |O      |
-|Adapter H      |X      |X      |X      |X      |X      |
-|Adapter P      |X      |X      |X      |X      |X      |
-|Prompt tuning  |X      |X      |X      |X      |X      |
-|IDPG (Original)|O      |O      |O      |O      |X      |
-|IDPG (Trained) |O      |O      |O      |O      |X      |
+|Adapter H      |O      |O      |O      |-      |-      |
+|Adapter P      |O      |O      |O      |-      |-      |
+|Prompt tuning  |O      |O      |O      |O      |O      |
+|IDPG           |O      |O      |O      |O      |?      |
 
 
 ## Benchmark Results
 ### GPT2-XL (1.5B)
-|Method            |PARAM | MNLI 10% m | SST-2 | RTE   |MNLI   |
-|---               |---   |---         |---    |---    |---    |
-|Fine tuning       |100%  |            |       |       |       |
-|LoRA              |0.47  |83.6        |       |       |       |
-|Prefix tuning     |0.48  |83.1        |       |       |       |
-|Adapter H         |      |            |       |       |       |
-|Adapter P         |      |            |       |       |       |
-|Prompt tuning     |      |            |       |       |       |
+|Method            |PARAM | MNLI 10% m | SST-2      | RTE    |MNLI   |MRPC        |
+|---               |---   |---         |---         |---     |---    |---         |
+|Fine tuning       |100%  |82.9        |            |76.6    |       |            |
+|LoRA              |0.47  |83.6        |            |        |       |            |
+|Prefix tuning     |0.48  |83.1        |            |        |       |            |
+|Adapter H         |      |            |            |        |       |            |
+|Adapter P         |      |            |            |        |       |            |
+|Prompt tuning     |0.005 |80.0        |            |        |       |            |
+|IDPG              |0.744 |82.28       |<b>95.65</b>|60.99(?)|       |75.00       |
+|PG                |0.746 |<b>82.52</b>|95.53       |        |       |<b>78.92</b>|
+
 
 
 ## Dataset split details
@@ -46,48 +55,6 @@
 |SST-2          | 67,349  |     872       |    1,821    |
 
 ----
-
-# Input Dependent Prompt
-## Best Results
-### GPT2-XL (1.5B)
-|Method            |PARAM | MNLI 10% m | SST-2 | RTE   |MNLI   |
-|---               |---   |---         |---    |---    |---    |
-|Fine tuning       |100   |            |       |       |       |
-|IGPG              |0.744 |82.28       |       |       |       |
-|IGPG (prompt-only)|0.746 |82.52       |       |       |       |
-
-## All Results
-|Method            |PARAM   |Task       |Learning Rate|Train Epochs|Warmup Step|Accuracy    |
-|---               |---     |---        |---          |---         |---        |---         |
-|---               |---     |---        |---          |---         |---        |---         |
-|IDPG              |0.744   |MNLI 10% m |1e-4         |40          |1,000      |58.39       |
-|IDPG              |0.744   |MNLI 10% m |5e-5         |40          |1,000      |<b>82.28</b>|
-|IDPG              |0.744   |MNLI 10% m |1e-5         |40          |1,000      |76.09       |
-|IDPG (prompt only)|0.746   |MNLI 10% m |1e-4         |40          |1,000      |<b>82.52</b>|
-|IDPG (prompt only)|0.746   |MNLI 10% m |5e-5         |40          |1,000      |-           |
-|IDPG (prompt only)|0.746   |MNLI 10% m |1e-5         |40          |1,000      |76.26       |
-|---               |---     |---        |---          |---         |---        |---         |
-|IDPG              |0.744   |RTE        |5e-3         |120         |1,000      |58.87       |
-|IDPG              |0.744   |RTE        |1e-3         |120         |1,000      |56.74       |
-|IDPG              |0.744   |RTE        |5e-4         |120         |1,000      |53.19       |
-|IDPG (prompt only)|0.746   |RTE        |5e-3         |120         |1,000      |-           |
-|IDPG (prompt only)|0.746   |RTE        |1e-3         |120         |1,000      |-           |
-|IDPG (prompt only)|0.746   |RTE        |5e-4         |120         |1,000      |-           |
-|---               |---     |---        |---          |---         |---        |---         |
-|IDPG              |0.744   |RTE        |5e-3         |120         |100        |55.32       |
-|IDPG              |0.744   |RTE        |1e-3         |120         |100        |55.32       |
-|IDPG              |0.744   |RTE        |5e-4         |120         |100        |52.48       |
-|IDPG (prompt only)|0.746   |RTE        |5e-3         |120         |100        |-           |
-|IDPG (prompt only)|0.746   |RTE        |1e-3         |120         |100        |-           |
-|IDPG (prompt only)|0.746   |RTE        |5e-4         |120         |100        |-           |
-|---               |---     |---        |---          |---         |---        |---         |
-|IDPG              |0.744   |MRPC       |5e-3         |120         |100        |-           |
-|IDPG              |0.744   |MRPC       |1e-3         |120         |100        |-           |
-|IDPG              |0.744   |MRPC       |5e-4         |120         |100        |-           |
-|IDPG (prompt only)|0.746   |MRPC       |5e-3         |120         |100        |-           |
-|IDPG (prompt only)|0.746   |MRPC       |1e-3         |120         |100        |-           |
-|IDPG (prompt only)|0.746   |MRPC       |5e-4         |120         |100        |-           |
-- RTE는 validation set에서는 68% 정도까지 성능이 나오는데, test set에서는 성능이 왜 저렇게 낮게 나오는지 의문... 테스트하는 데이터가 적어서 그런가 (validation : 138 / test : 139)
 
 ## Architecture
 ![image](https://user-images.githubusercontent.com/29649894/146304303-9a773178-470b-4a96-8026-e832d51bcb48.png)
