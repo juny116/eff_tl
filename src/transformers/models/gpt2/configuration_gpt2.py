@@ -172,11 +172,13 @@ class GPT2Config(PretrainedConfig):
         apply_prefix=False,
         num_prefix=0,
         mid_dim=0,
+        # OURS
         apply_encoder=False,
         apply_input=False,
         encoder_model_name_or_path=None,
         freeze_encoder=False,
         prompt_length=None,
+        reparameterize=False,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -225,6 +227,7 @@ class GPT2Config(PretrainedConfig):
         self.encoder_model_name_or_path=encoder_model_name_or_path
         self.freeze_encoder=freeze_encoder
         self.prompt_length=prompt_length
+        self.reparameterize=reparameterize
 
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
 

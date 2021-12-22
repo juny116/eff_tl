@@ -245,7 +245,13 @@ def parse_args():
         type=int, 
         help='Number of prompt tokens.'
     )
-    
+    parser.add_argument(
+        '--reparameterize', 
+        default=False, 
+        action="store_true",
+        help='Reparameterize prompt.'
+    )
+
     args = parser.parse_args()
     
     # Sanity checks
@@ -386,7 +392,8 @@ def main():
         apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
         apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
         apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
-        freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length
+        freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length,
+        reparameterize=args.reparameterize,
     )
 
     # TODO : fix?
