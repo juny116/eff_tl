@@ -59,16 +59,17 @@ deepspeed main.py
 
 ## Benchmark Results
 ### GPT2-XL (1.5B)
-|Method            |PARAM | MNLI 10% m | SST-2      | RTE    |MNLI   |MRPC        |
-|---               |---   |---         |---         |---     |---    |---         |
-|Fine tuning       |100%  |82.9        |            |76.6    |       |            |
-|LoRA              |0.47  |83.6        |            |        |       |            |
-|Prefix tuning     |0.48  |83.1        |            |        |       |            |
-|Adapter H         |      |            |            |        |       |            |
-|Adapter P         |      |            |            |        |       |            |
-|Prompt tuning     |0.005 |80.0        |            |        |       |            |
-|IDPG              |0.744 |82.28       |<b>95.65</b>|60.99(?)|       |75.00       |
-|PG                |0.746 |<b>82.52</b>|95.53       |        |       |<b>78.92</b>|
+|Method            |PARAM | MNLI 10% m | SST-2      |MRPC        | RTE    |MNLI   |
+|---               |---   |---         |---         |---         |---     |---    |
+|Fine tuning       |100%  |82.9        |            |            |76.6    |       |
+|LoRA              |0.47  |83.6        |            |            |        |       |
+|Prefix tuning     |0.48  |83.1        |            |            |        |       |
+|Adapter H         |      |            |            |            |        |       |
+|Adapter P         |      |            |            |            |        |       |
+|Prompt tuning     |0.005 |80.0        |            |            |        |       |
+|IDPG              |0.744 |82.28       |<b>95.65</b>|75.00       |60.99(?)|       |
+|PG                |0.746 |<b>82.52</b>|95.53       |<b>78.92</b>|        |       |
+|Reparameterization|      |            |            |            |        |       |
 
 
 
