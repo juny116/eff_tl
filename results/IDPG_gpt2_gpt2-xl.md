@@ -15,9 +15,9 @@
 |PG                |1234 |0.746   |MNLI 10% m |8e-5         |40          |1,000      |56.44         |
 |PG                |1234 |0.746   |MNLI 10% m |5e-5         |40          |1,000      |오류           |
 |PG                |1234 |0.746   |MNLI 10% m |1e-5         |40          |1,000      |76.26         |
-|Reparameterization|1234 |0.804   |MNLI 10% m |             |40          |1,000      |              |
-|Reparameterization|1234 |0.804   |MNLI 10% m |             |40          |1,000      |              |
-|Reparameterization|1234 |0.804   |MNLI 10% m |             |40          |1,000      |              |
+|Reparameterization|1234 |0.804   |MNLI 10% m |1e-4         |40          |1,000      |<b>82.68</b>  |
+|Reparameterization|1234 |0.804   |MNLI 10% m |5e-5         |40          |1,000      |81.38         |
+|Reparameterization|1234 |0.804   |MNLI 10% m |1e-5         |40          |1,000      |35.13         |
 |---               |---  |---     |---        |---          |---         |---        |---           |
 |IDPG              |1234 |0.744   |RTE        |5e-2         |120         |1,000      |54.61         |
 |IDPG              |1234 |0.744   |RTE        |1e-2         |120         |1,000      |<b>60.99</b>  |
