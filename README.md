@@ -68,8 +68,8 @@ deepspeed main.py
 |Adapter P         |      |            |            |            |        |       |
 |Prompt tuning     |0.005 |80.0        |            |            |        |       |
 |IDPG              |0.744 |82.28       |<b>95.65</b>|75.00       |60.99(?)|       |
-|PG                |0.746 |<b>82.52</b>|95.53       |<b>78.92</b>|        |       |
-|Reparameterization|      |            |            |            |        |       |
+|PG                |0.746 |82.52       |95.53       |<b>78.92</b>|        |       |
+|Reparameterization|0.804 |<b>82.68</b>|            |            |        |       |
 
 
 
