@@ -84,9 +84,10 @@ deepspeed main.py
 ----
 
 ## Architecture
-![image](https://user-images.githubusercontent.com/29649894/146304303-9a773178-470b-4a96-8026-e832d51bcb48.png)
 
 - IDPG : 12620096 / 1694671104 (0.744%)
+
+![image](https://user-images.githubusercontent.com/29649894/147305170-5303fff4-d48b-44bf-9284-1ac1afdaa656.png)
 
 |Name                                       |Param       |
 |---                                        |---         |
@@ -98,6 +99,9 @@ deepspeed main.py
 
 - PG : 12635456 / 1694686464 (0.746%)
 
+![image](https://user-images.githubusercontent.com/29649894/147305182-9b46cea8-74e8-42a6-8dd4-4fe1267258d1.png)
+
+
 |Name                                             |Param       |
 |---                                              |---         |
 |output_processor.score.weight                    |[3, 1600]   |
@@ -108,6 +112,8 @@ deepspeed main.py
 |input_processor.encoder_prompt_embeddings.weight |[20, 768]   |
 
 - Reparameterization : 12620864 / 1570232064 (0.804%)
+
+![image](https://user-images.githubusercontent.com/29649894/147305201-9b53832c-2c02-41d2-b539-fe588bc656d4.png)
 
 |Name                                             |Param       |
 |---                                              |---         |
