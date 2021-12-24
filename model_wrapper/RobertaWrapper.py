@@ -28,7 +28,9 @@ class RobertaWrapper(torch.nn.Module):
         # for output processing (output logits -> loss, prediction)
         self.output_processor = RobertaOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
 
-        self.input_processor = IDPGProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
+        # self.input_processor = IDPGProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
+        self.input_processor = RobertaPromptInputProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
+        
         # # for other methods (LoRA, Adapter, Prefix-tuning)
         # # input_ids -> input_embeds
         # if not self.config.apply_input and not self.config.apply_encoder and self.config.prompt_length is None:

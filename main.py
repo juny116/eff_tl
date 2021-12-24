@@ -28,7 +28,7 @@ import torch
 import deepspeed
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
-
+from torch.optim import Adam
 from model_wrapper.GPT2Wrapper import GPT2Wrapper
 from model_wrapper.RobertaWrapper import RobertaWrapper
 
@@ -597,18 +597,18 @@ def main():
             for name, param in model.named_parameters():
                 if param.requires_grad == True:
                     file_writer.write(f"{name} > {param.shape} \n")
-    
+
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr)
+    # optimizer = Adam(optimizer_grouped_parameters, lr=args.lr, betas=(0.9, 0.98), eps=1e-06)
+    # lr_scheduler = get_scheduler(
+    #     name=args.lr_scheduler_type,
+    #     optimizer=optimizer,
+    #     num_warmup_steps=args.num_warmup_steps,
+    #     num_training_steps=args.max_train_steps,
+    # )
 
-    lr_scheduler = get_scheduler(
-        name=args.lr_scheduler_type,
-        optimizer=optimizer,
-        num_warmup_steps=args.num_warmup_steps,
-        num_training_steps=args.max_train_steps,
-    )
-
-    model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
-    #model_engine, optimizer, _, _ = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
+    # model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
+    model_engine, optimizer, _, _ = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
     
     # Train!
     if args.local_rank == 0:
