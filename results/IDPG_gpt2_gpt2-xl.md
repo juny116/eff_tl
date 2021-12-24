@@ -35,9 +35,9 @@
 |PG                |1234 |0.746   |RTE        |5e-3         |120         |1,000      |56.03         |
 |PG                |1234 |0.746   |RTE        |1e-3         |120         |1,000      |-             |
 |PG                |1234 |0.746   |RTE        |5e-4         |120         |1,000      |-             |
-|Reparameterization|1234 |0.804   |RTE        |             |40          |1,000      |              |
-|Reparameterization|1234 |0.804   |RTE        |             |40          |1,000      |              |
-|Reparameterization|1234 |0.804   |RTE        |             |40          |1,000      |              |
+|Reparameterization|1234 |0.804   |RTE        |             |            |1,000      |              |
+|Reparameterization|1234 |0.804   |RTE        |             |            |1,000      |              |
+|Reparameterization|1234 |0.804   |RTE        |             |            |1,000      |              |
 |---               |---  |---     |---        |---          |---         |---        |---           |
 |Fine-tuning       |1234 |100     |RTE        |5e-4         |20          |100        |51.77         |
 |Fine-tuning       |1234 |100     |RTE        |1e-4         |20          |100        |58.87         |
@@ -49,26 +49,26 @@
 |PG                |1234 |0.746   |RTE        |5e-3         |120         |100        |-             |
 |PG                |1234 |0.746   |RTE        |1e-3         |120         |100        |-             |
 |PG                |1234 |0.746   |RTE        |5e-4         |120         |100        |-             |
-|Reparameterization|1234 |0.804   |RTE        |             |40          |100        |              |
-|Reparameterization|1234 |0.804   |RTE        |             |40          |100        |              |
-|Reparameterization|1234 |0.804   |RTE        |             |40          |100        |              |
+|Reparameterization|1234 |0.804   |RTE        |             |            |100        |              |
+|Reparameterization|1234 |0.804   |RTE        |             |            |100        |              |
+|Reparameterization|1234 |0.804   |RTE        |             |            |100        |              |
 |---               |---  |---     |---        |---          |---         |---        |---           |
 |IDPG              |1234 |0.744   |MRPC       |5e-3         |150         |100        |68.14         |
 |IDPG              |1234 |0.744   |MRPC       |3e-3         |150         |100        |74.51         |
 |IDPG              |1234 |0.744   |MRPC       |1e-3         |150         |100        |<b>75.00</b>  |
 |IDPG              |1234 |0.744   |MRPC       |8e-4         |150         |100        |71.08         |
 |IDPG              |1234 |0.744   |MRPC       |5e-4         |150         |100        |72.06         |
-|IDPG (trained)    |1234 |        |MRPC       |             |40          |100        |              |
-|IDPG (trained)    |1234 |        |MRPC       |             |40          |100        |              |
-|IDPG (trained)    |1234 |        |MRPC       |             |40          |100        |              |
+|IDPG (trained)    |1234 |        |MRPC       |             |150         |100        |              |
+|IDPG (trained)    |1234 |        |MRPC       |             |150         |100        |              |
+|IDPG (trained)    |1234 |        |MRPC       |             |150         |100        |              |
 |PG                |1234 |0.746   |MRPC       |5e-3         |150         |100        |69.61         |
 |PG                |1234 |0.744   |MRPC       |3e-3         |250         |100        |76.47         |
 |PG                |1234 |0.746   |MRPC       |1e-3         |150         |100        |<b>78.92 (더 학습 가능)</b>|
 |PG                |1234 |0.744   |MRPC       |8e-4         |250         |100        |67.16         |
 |PG                |1234 |0.746   |MRPC       |5e-4         |150         |100        |69.12         |
-|Reparameterization|1234 |0.804   |MRPC       |1e-4         |40          |100        |<b>84.31</b>  |
-|Reparameterization|1234 |0.804   |MRPC       |5e-5         |40          |100        |74.02         |
-|Reparameterization|1234 |0.804   |MRPC       |1e-5         |40          |100        |69.61         |
+|Reparameterization|1234 |0.804   |MRPC       |1e-4         |150         |100        |<b>84.31</b>  |
+|Reparameterization|1234 |0.804   |MRPC       |5e-5         |150         |100        |74.02         |
+|Reparameterization|1234 |0.804   |MRPC       |1e-5         |150         |100        |69.61         |
 |---               |---  |---     |---        |---          |---         |---        |---           |
 |IDPG              |1234 |0.744   |SST-2      |1e-2         |30          |1,000      |94.50         |
 |IDPG              |1234 |0.744   |SST-2      |5e-3         |30          |1,000      |95.07         |
@@ -79,9 +79,9 @@
 |IDPG              |1234 |0.744   |SST-2      |1e-4         |30          |1,000      |95.3          |
 |IDPG              |1234 |0.744   |SST-2      |5e-5         |30          |1,000      |95.19         |
 |IDPG              |1234 |0.744   |SST-2      |1e-5         |30          |1,000      |94.73         |
-|IDPG (trained)    |1234 |        |SST-2      |             |40          |1,000      |              |
-|IDPG (trained)    |1234 |        |SST-2      |             |40          |1,000      |              |
-|IDPG (trained)    |1234 |        |SST-2      |             |40          |1,000      |              |
+|IDPG (trained)    |1234 |        |SST-2      |             |30          |1,000      |              |
+|IDPG (trained)    |1234 |        |SST-2      |             |30          |1,000      |              |
+|IDPG (trained)    |1234 |        |SST-2      |             |30          |1,000      |              |
 |PG                |1234 |0.744   |SST-2      |5e-3         |30          |1,000      |오류           |
 |PG                |1234 |0.744   |SST-2      |1e-3         |30          |1,000      |94.04         |
 |PG                |1234 |0.744   |SST-2      |5e-4         |30          |1,000      |95.07         |
