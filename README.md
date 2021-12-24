@@ -71,7 +71,18 @@ deepspeed main.py
 |PG                |0.746 |82.52       |95.53       |78.92       |        |       |
 |Reparameterization|0.804 |<b>82.68</b>|94.95       |<b>84.31</b>|        |       |
 
-
+### RoBERTa-large (355M)
+|Method            |PARAM | MNLI 10% m | SST-2      |MRPC        | RTE    |MNLI   |
+|---               |---   |---         |---         |---         |---     |---    |
+|Fine tuning       |      |            |            |            |        |       |
+|LoRA              |      |            |            |            |        |       |
+|Prefix tuning     |      |            |            |            |        |       |
+|Adapter H         |      |            |            |            |        |       |
+|Adapter P         |      |            |            |            |        |       |
+|Prompt tuning     |      |            |93.6        |            |        |       |
+|IDPG              |      |            |94.38       |            |        |       |
+|PG                |      |            |            |            |        |       |
+|Reparameterization|      |            |            |            |        |       |
 
 ## Dataset split details
 |Dataset        |Train    | Validation    | Test        |
