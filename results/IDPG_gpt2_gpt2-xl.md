@@ -60,9 +60,9 @@
 |PG                |1234 |0.746   |MRPC       |1e-3         |150         |100        |<b>78.92 (더 학습 가능)</b>|
 |PG                |1234 |0.744   |MRPC       |8e-4         |250         |100        |67.16         |
 |PG                |1234 |0.746   |MRPC       |5e-4         |150         |100        |69.12         |
-|Reparameterization|1234 |0.804   |MRPC       |             |40          |100        |              |
-|Reparameterization|1234 |0.804   |MRPC       |             |40          |100        |              |
-|Reparameterization|1234 |0.804   |MRPC       |             |40          |100        |              |
+|Reparameterization|1234 |0.804   |MRPC       |1e-4         |40          |100        |<b>84.31</b>  |
+|Reparameterization|1234 |0.804   |MRPC       |5e-5         |40          |100        |74.02         |
+|Reparameterization|1234 |0.804   |MRPC       |1e-5         |40          |100        |69.61         |
 |---               |---  |---     |---        |---          |---         |---        |---           |
 |IDPG              |1234 |0.744   |SST-2      |1e-2         |30          |1,000      |94.50         |
 |IDPG              |1234 |0.744   |SST-2      |5e-3         |30          |1,000      |95.07         |
@@ -81,7 +81,7 @@
 |PG                |1234 |0.746   |SST-2      |3e-5         |30          |1,000      |94.85         |
 |PG                |1234 |0.746   |SST-2      |1e-5         |30          |1,000      |<b>95.53</b>  |
 |PG                |1234 |0.746   |SST-2      |8e-6         |30          |1,000      |93.93         |
-|Reparameterization|1234 |0.804   |SST-2      |             |40          |1,000      |              |
-|Reparameterization|1234 |0.804   |SST-2      |             |40          |1,000      |              |
-|Reparameterization|1234 |0.804   |SST-2      |             |40          |1,000      |              |
+|Reparameterization|1234 |0.804   |SST-2      |1e-4         |40          |1,000      |<b>94.95</b>  |
+|Reparameterization|1234 |0.804   |SST-2      |5e-5         |40          |1,000      |94.61         |
+|Reparameterization|1234 |0.804   |SST-2      |1e-5         |40          |1,000      |93.58         |
 
