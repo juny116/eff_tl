@@ -59,17 +59,18 @@ deepspeed main.py
 
 ## Benchmark Results
 ### GPT2-XL (1.5B)
-|Method            |PARAM | MNLI 10% m | SST-2      |MRPC        | RTE    |MNLI   |
-|---               |---   |---         |---         |---         |---     |---    |
-|Fine tuning       |100%  |82.9        |            |            |76.6    |       |
-|LoRA              |0.47  |83.6        |            |            |        |       |
-|Prefix tuning     |0.48  |83.1        |            |            |        |       |
-|Adapter H         |      |            |            |            |        |       |
-|Adapter P         |      |            |            |            |        |       |
-|Prompt tuning     |0.005 |80.0        |            |            |        |       |
-|IDPG              |0.744 |82.28       |<b>95.65</b>|79.41       |60.99(?)|       |
-|PG                |0.746 |82.52       |95.53       |78.92       |        |       |
-|Reparameterization|0.804 |<b>82.68</b>|94.95       |<b>84.31</b>|        |       |
+|Method            |PARAM | MNLI 10% m | SST-2      |MRPC                | RTE    |MNLI   |
+|---               |---   |---         |---         |---                 |---     |---    |
+|Fine tuning       |100%  |82.9        |            |                    |76.6    |       |
+|LoRA              |0.47  |83.6        |            |                    |        |       |
+|Prefix tuning     |0.48  |83.1        |            |                    |        |       |
+|Adapter H         |      |            |            |                    |        |       |
+|Adapter P         |      |            |            |                    |        |       |
+|Prompt tuning     |0.005 |80.0        |            |                    |        |       |
+|IDPG              |0.744 |82.28       |<b>95.65</b>|79.41 / 86.09       |60.99(?)|       |
+|PG                |0.746 |82.52       |95.53       |78.92 / 85.42       |        |       |
+|Reparameterization|0.804 |<b>82.68</b>|94.95       |<b>84.31 / 88.97</b>|        |       |
+|IDPG-trained      |8.090 |81.72       |94.50       |                    |        |       |
 
 ### RoBERTa-large (355M)
 |Method            |PARAM | MNLI 10% m | SST-2      |MRPC        | RTE    |MNLI   |
