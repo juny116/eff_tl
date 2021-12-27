@@ -1,9 +1,9 @@
 # Efficient transfer learning
 
 ## Installation
-1. Install requirements.txt
+1. Install requirements
 ```bash
-pip install -r requirements
+pip install -r requirements.txt
 ```
 2. Install Custom Transformers Library
 ```bash
