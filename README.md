@@ -124,7 +124,7 @@ deepspeed main.py
 
 - Reparameterization : 12620864 / 1570232064 (0.804%)
 
-![image](https://user-images.githubusercontent.com/29649894/147305201-9b53832c-2c02-41d2-b539-fe588bc656d4.png)
+![image](https://user-images.githubusercontent.com/29649894/147435274-6f5b4a50-3e03-439e-a37a-dfb6b6b001b9.png)
 
 |Name                                             |Param       |
 |---                                              |---         |
