@@ -1,7 +1,7 @@
 # Efficient transfer learning
 
 ## Installation
-1. Install requirements
+1. Install requirements.txt
 ```bash
 pip install -r requirements
 ```
