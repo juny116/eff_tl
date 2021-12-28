@@ -62,7 +62,7 @@ deepspeed main.py
 |Method            |PARAM | MNLI 10% m | SST-2      |MRPC                | RTE    |MNLI   |
 |---               |---   |---         |---         |---                 |---     |---    |
 |Fine tuning       |100%  |82.9        |            |                    |76.6    |       |
-|LoRA              |0.47  |83.6        |            |                    |        |       |
+|LoRA              |0.47  |83.7        |            |                    |        |       |
 |Prefix tuning     |0.48  |83.1        |            |                    |        |       |
 |Adapter H         |      |            |            |                    |        |       |
 |Adapter P         |      |            |            |                    |        |       |
