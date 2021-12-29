@@ -251,6 +251,18 @@ def parse_args():
         action="store_true",
         help='Reparameterize prompt.'
     )
+    parser.add_argument(
+        '--generate', 
+        default=False, 
+        action="store_true",
+        help='Generate prompts (our method).'
+    )
+    parser.add_argument(
+        '--exlude_classifier_epoch', 
+        default=0, 
+        type=int, 
+        help='Exclude training of the classifier for the selected epochs.'
+    )
 
     args = parser.parse_args()
     
@@ -393,7 +405,7 @@ def main():
         apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
         apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
         freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length,
-        reparameterize=args.reparameterize,
+        reparameterize=args.reparameterize, generate=args.generate,
     )
 
     # TODO : fix?
@@ -457,7 +469,7 @@ def main():
         return result
 
     if args.local_rank != 0:
-        torch.distributed.barrier()
+       torch.distributed.barrier()
     processed_datasets = raw_datasets.map(
         preprocess_function,
         batched=True,
@@ -606,6 +618,7 @@ def main():
 
     model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
     # model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
+   
     # Train!
     if args.local_rank == 0:
         total_batch_size = args.per_device_batch_size * args.world_size * args.gradient_accumulation_steps
@@ -628,6 +641,20 @@ def main():
     best_acc = 0
     save_flag = False
     for epoch in range(args.num_train_epochs):
+
+        # Freeze classifier (only train the encoder)
+        for n,p in model_engine.named_parameters():
+            if "output_processor" in n:
+                if epoch < args.exlude_classifier_epoch:
+                    p.requires_grad = False
+                else:
+                    p.requires_grad = True
+                    
+        if args.local_rank == 0:
+            if args.local_rank == 0:
+                writer.add_scalar('Trained Parameters', sum(p.numel() for p in model.parameters() if p.requires_grad), model_engine.global_steps)
+                logger.info(f'Trained param : {sum(p.numel() for p in model.parameters() if p.requires_grad), model_engine.global_steps}')
+
         model_engine.train()
         for step, batch in enumerate(train_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}

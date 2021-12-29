@@ -1,9 +1,9 @@
 
 
-from typing import Tuple
+from typing import Tuple, Dict, List
 
 import torch
-from transformers import AutoModel, AutoConfig
+from transformers import AutoModel, AutoConfig, AutoTokenizer
 
 class BaseInputProcessor(torch.nn.Module):
     def __init__(self, config, embeddings):
@@ -269,3 +269,105 @@ class PromptEncoderInputProcessor(EncoderInputProcessor):
         # input_embeddings : (batch, length, embedding_dim)
         # attention_mask   : (batch, length)
         return final_input_embeddings, final_attention_mask
+
+
+## OURS ##
+class GenerationProcessor(BaseInputProcessor):
+    def __init__(self, config, embeddings):
+        super().__init__(config, embeddings)
+
+        self.encoder_prompt_length = self.config.prompt_length
+        assert self.encoder_prompt_length > 0, f'Prompt length must be greater than 0, got {self.encoder_prompt_length}.'
+        
+        # PLM encoder
+        self.encoder = AutoModel.from_pretrained(config.encoder_model_name_or_path)
+        self.encoder_tokenizer = AutoTokenizer.from_pretrained(config.encoder_model_name_or_path)
+        self.encoder_embedding_dim = self.encoder.wte.embedding_dim
+        # converts encoder PLM -> inferencing PLM
+        self.mapper = torch.nn.Sequential(torch.nn.Linear(self.encoder_embedding_dim, self.encoder_embedding_dim),
+                                            torch.nn.ReLU(),
+                                            torch.nn.Linear(self.encoder_embedding_dim, self.embedding_dim))
+
+        # LM head
+        # copy weight from input embedding
+        self.encoder_lm_head = torch.nn.Linear(self.encoder.config.n_embd, self.encoder.config.vocab_size, bias=False)
+        self.encoder_lm_head.weight = self.encoder.wte.weight
+
+    def forward(
+        self,
+        input_ids:torch.Tensor,                 # shape : (batch, max_length)
+        attention_mask:torch.Tensor,            # shape : (batch, max_length)
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+
+        batch_size, length = input_ids.shape
+
+        ## original input ##
+        # shape : (batch, length, embedding_dim)
+        input_embeddings = self.embeddings(input_ids)
+
+
+        # list of all the generated prompt embeddings
+        generated_embeddings = []
+
+        kwargs = {
+                'input_ids' : input_ids,  # shape : (batch, embedding_dim)
+                'attention_mask' : attention_mask,      # shape : (batch, max_length + 1)
+                'past_key_values' : None,
+                'use_cache' : True,
+            } 
+
+        _attention_mask = attention_mask
+
+        # generate prompts
+        for generation_index in range(self.encoder_prompt_length):
+            encoder_outputs = self.encoder(**kwargs)
+            # generated prompt embedding
+            # shape : (batch, length, encoder_embedding_dim)
+            encoder_embeddings = encoder_outputs.last_hidden_state
+            # get the last index (ignore padding)
+            sequence_lengths = torch.ne(_attention_mask, 0).sum(-1) - 1
+            # generated last hidden embedding
+            # shape : (batch, max_length, embedding_dim) -> (batch, embedding_dim) -> (batch, 1, embedding_dim)
+            generated_embedding = encoder_embeddings[range(batch_size), sequence_lengths].unsqueeze(1)
+
+            # append tensor of (batch, embedding_dim) -> (batch, 1, embedding_dim)
+            generated_embeddings.append(generated_embedding)
+            # length : # layers
+            # past key values (for future generation)
+            past_key_values = encoder_outputs.past_key_values    
+
+            # expand attention mask
+            # shape : (batch, 1)
+            _attention_mask = torch.ones(batch_size, 1).to(attention_mask.device)
+
+            kwargs = {
+                    'inputs_embeds' : generated_embedding,  # shape : (batch, embedding_dim)
+                    'attention_mask' : _attention_mask,      # shape : (batch, max_length + 1)
+                    'past_key_values' : past_key_values,    # List
+                    'use_cache' : True
+                }  
+
+        # shape : (batch, encoder_prompt_length, encoder_embedding_dim)
+        generated_embeddings = torch.cat(generated_embeddings, dim=1)
+
+        # shape : (batch, encoder_prompt_length, embedding_dim)
+        generated_embeddings = self.mapper(generated_embeddings)
+        # shape : (batch, encoder_prompt_length)
+        generated_attention_mask = torch.ones(batch_size, self.encoder_prompt_length).to(generated_embeddings)
+
+        # shape : (batch, encoder_prompt_length + input_length, embedding_dim)
+        final_input_embeddings = torch.cat([generated_embeddings, input_embeddings], dim=1)
+        # shape : (batch, encoder_prompt_length + input_length)
+        final_attention_mask = torch.cat([generated_attention_mask, attention_mask], dim=1)
+
+        assert batch_size == final_input_embeddings.shape[0]
+        assert length+self.encoder_prompt_length == final_input_embeddings.shape[1]
+        assert batch_size == final_attention_mask.shape[0]
+        assert length+self.encoder_prompt_length == final_attention_mask.shape[1]
+
+        # input_embeddings : (batch, length, embedding_dim)
+        # attention_mask   : (batch, length)
+        return final_input_embeddings, final_attention_mask
+
+
+
