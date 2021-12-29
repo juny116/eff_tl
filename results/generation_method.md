@@ -11,7 +11,7 @@
 |MNLI-40000     |1234 |10        |1e-4  |linear     |1,500        |33.3                |
 |MNLI-40000     |1234 |10        |5e-5  |linear     |1,500        |33.3                |
 |MNLI-40000     |1234 |10        |1e-3  |linear     |5,000        |78 + overflow       |
-|MNLI-40000     |1234 |          |      |linear     |             |                    |
+|MNLI-40000     |1234 |10        |1e-3  |linear     |3,000        |                    |
 |MNLI-40000     |1234 |          |      |linear     |             |                    |
 |MNLI-40000     |1234 |          |      |linear     |             |                    |
 |MNLI-40000     |1234 |          |      |linear     |             |                    |
