@@ -61,9 +61,9 @@ deepspeed main.py
 ### GPT2-XL (1.5B)
 |Method            |PARAM | MNLI 10% m | SST-2      |MRPC                | RTE    |MNLI   |
 |---               |---   |---         |---         |---                 |---     |---    |
-|Fine tuning       |100%  |82.9        |            |                    |76.6    |       |
-|LoRA              |0.47  |83.7        |            |                    |        |       |
-|Prefix tuning     |0.48  |83.1        |            |                    |        |       |
+|Fine tuning       |100%  |82.9        |94.1        |                    |76.6    |       |
+|LoRA              |0.47  |83.7        |95.2        |                    |        |       |
+|Prefix tuning     |0.48  |83.1        |94.95       |                    |        |       |
 |Adapter H         |      |            |            |                    |        |       |
 |Adapter P         |      |            |            |                    |        |       |
 |Prompt tuning     |0.005 |80.0        |            |                    |        |       |
