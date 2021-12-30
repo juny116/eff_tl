@@ -24,7 +24,8 @@
 
 |Dataset        |Seed |# prompts | lr   | scheduler |Train eposh | warmup step | valid approx. acc. |
 |---            |---  |---       |---   |---        |---         |---          | ---                |
+|MNLI-40000     |1234 |10        |5e-3  |linear     |30          |4000         |                    |
 |MNLI-40000     |1234 |10        |1e-3  |linear     |30          |4000         |78 이후 overflow     |
-|MNLI-40000     |1234 |10        |1e-3  |linear     |30          |4000         |                    |
+|MNLI-40000     |1234 |10        |1e-4  |linear     |30          |4000         |77.7                |
 |SST-2          |1234 |10        |5e-5  |linear     |20          |2,000        |93.81               |
 |SST-2          |1234 |10        |5e-5  |linear     |20          |2,000        |                    |
