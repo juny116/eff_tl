@@ -263,6 +263,19 @@ def parse_args():
         type=int, 
         help='Exclude training of the classifier for the selected epochs.'
     )
+    parser.add_argument(
+        "--encoder_pooling",
+        type=str,
+        default="last_hidden_state",
+        help="Pooling method for encoder representation.",
+        choices=["last_hidden_state", "mean", "max"],
+    )
+    parser.add_argument(
+        '--early_stop_epoch', 
+        default=10000, 
+        type=int, 
+        help='Early stop epoch'
+    )
 
     args = parser.parse_args()
     
@@ -405,7 +418,8 @@ def main():
         apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
         apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
         freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length,
-        reparameterize=args.reparameterize, generate=args.generate,
+        reparameterize=args.reparameterize, generate=args.generate, encoder_pooling=args.encoder_pooling,
+
     )
 
     # TODO : fix?
@@ -639,6 +653,7 @@ def main():
     progress_bar = tqdm(range(args.max_train_steps), disable=(args.local_rank != 0))
     completed_steps = 0
     best_acc = 0
+    best_epoch = 0
     save_flag = False
     for epoch in range(args.num_train_epochs):
 
@@ -691,6 +706,7 @@ def main():
             logger.info(f"Valditaion step {model_engine.global_steps} results {eval_metric}")
             if eval_metric['accuracy'] > best_acc:
                 best_acc = eval_metric['accuracy']
+                best_epoch = epoch
                 save_flag = True            
             else:
                 save_flag = False
@@ -700,6 +716,13 @@ def main():
         save_flag = get_value_from_shared_json_file(args.output_dir, 'save_flag')
         if save_flag:
             model_engine.save_checkpoint(args.output_dir)
+
+        # best epoch - current epoch
+        patience = best_epoch - epoch
+        if patience > args.early_stop_epoch:
+            if args.local_rank == 0:
+                logger.info(f'Patience {patience} > early stop epoch {args.early_stop_epoch}. End process')
+            break
     
     # load best dev model 
     # TODO: In ZeRO3 load checkpoint after save checkpoint do not work!!
