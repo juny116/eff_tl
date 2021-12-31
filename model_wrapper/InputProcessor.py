@@ -144,6 +144,8 @@ class EncoderInputProcessor(BaseInputProcessor):
         self.encoder_prompt_length = self.config.prompt_length
         assert self.encoder_prompt_length > 0, f'Prompt length must be greater than 0, got {self.encoder_prompt_length}.'
         
+        self.encoder_pooling = config.encoder_pooling
+
         # PLM encoder
         self.encoder = AutoModel.from_pretrained(config.encoder_model_name_or_path)
         self.encoder_embedding_dim = self.encoder.wte.embedding_dim
@@ -169,8 +171,28 @@ class EncoderInputProcessor(BaseInputProcessor):
         encoder_embeddings = encoder_outputs.last_hidden_state
 
         sequence_lengths = torch.ne(attention_mask, 0).sum(-1) - 1
-        # shape : (batch, encoder_embedding_dim)
-        input_dependent_representation = encoder_embeddings[range(batch_size), sequence_lengths]
+        if self.encoder_pooling == "last_hidden_state":
+            # shape : (batch, encoder_embedding_dim)
+            input_dependent_representation = encoder_embeddings[range(batch_size), sequence_lengths]
+        elif self.encoder_pooling == "mean":
+            input_dependent_representation = []
+            for i in range(batch_size):
+                last_index = sequence_lengths[i]
+                # append shape : (1, encoder_embedding_dim)
+                input_dependent_representation.append(torch.mean(encoder_embeddings[i, :last_index], dim=0, keepdim=True))
+            # shape : (batch, encoder_embedding_dim)
+            input_dependent_representation = torch.cat(input_dependent_representation, dim=0)
+        elif self.encoder_pooling == "max":
+            input_dependent_representation = []
+            for i in range(batch_size):
+                last_index = sequence_lengths[i]
+                # append shape : (1, encoder_embedding_dim)
+                input_dependent_representation.append(torch.max(encoder_embeddings[i, :last_index], dim=0, keepdim=True).values)
+            # shape : (batch, encoder_embedding_dim)
+            input_dependent_representation = torch.cat(input_dependent_representation, dim=0)
+
+
+
 
         # shape : (batch, embedding_dim * encoder_prompt_length)
         input_dependent_representation = self.encoder_generator(input_dependent_representation)
