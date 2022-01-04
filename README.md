@@ -81,9 +81,9 @@ deepspeed main.py
 |Adapter H         |      |            |            |            |        |       |
 |Adapter P         |      |            |            |            |        |       |
 |Prompt tuning     |      |            |93.6        |            |        |       |
-|IDPG              |      |            |94.4       |            |        |       |
-|PG                |      |            |            |            |        |       |
-|Reparameterization|      |            |            |            |        |       |
+|IDPG              |      |            |94.4        |            |        |       |
+|PG                |      |            |94.5        |            |        |       |
+|Reparameterization|      |            |        |            |        |       |
 
 ## Dataset split details
 |Dataset        |Train    | Validation    | Test        |
