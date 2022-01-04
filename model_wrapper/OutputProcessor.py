@@ -27,11 +27,34 @@ class BaseOutputProcessor(torch.nn.Module):
         # shape : (batch, length, num_labels)
         logits = self.score(last_hidden_state)
 
-        # get the index of the final representation
-        sequence_lengths = torch.ne(attention_mask, 0).sum(-1) - 1
+        
 
-        # shape : (batch, num_labels)
-        pooled_logits = logits[range(batch_size), sequence_lengths]
+        if self.config.prediction_pooling == "last_hidden_state":
+            # get the index of the final representation
+            sequence_lengths = torch.ne(attention_mask, 0).sum(-1) - 1
+            # shape : (batch, encoder_embedding_dim)
+            pooled_logits = logits[range(batch_size), sequence_lengths]
+        elif self.config.prediction_pooling == "mean":
+            # get the index of the final representation
+            sequence_lengths = torch.ne(attention_mask, 0).sum(-1)
+            pooled_logits = []
+            for i in range(batch_size):
+                last_index = sequence_lengths[i]
+                # append shape : (1, encoder_embedding_dim)
+                pooled_logits.append(torch.mean(logits[i, :last_index], dim=0, keepdim=True))
+            # shape : (batch, encoder_embedding_dim)
+            pooled_logits = torch.cat(pooled_logits, dim=0)
+        elif self.config.prediction_pooling == "max":
+            # get the index of the final representation
+            sequence_lengths = torch.ne(attention_mask, 0).sum(-1)
+            pooled_logits = []
+            for i in range(batch_size):
+                last_index = sequence_lengths[i]
+                # append shape : (1, encoder_embedding_dim)
+                pooled_logits.append(torch.max(logits[i, :last_index], dim=0, keepdim=True).values)
+            # shape : (batch, encoder_embedding_dim)
+            pooled_logits = torch.cat(pooled_logits, dim=0)
+
 
         ## same code as transformers.GPT2ForSequenceClassification ##
         loss = None
