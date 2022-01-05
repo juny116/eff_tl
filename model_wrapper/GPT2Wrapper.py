@@ -45,7 +45,7 @@ class GPT2Wrapper(torch.nn.Module):
         # for PLM encoder + input dependent
         elif self.config.apply_input and self.config.apply_encoder:
             if self.config.generate:
-                self.input_processor = GenerationProcessor(config=config, embeddings=self.transformer.wte)
+                self.input_processor = GenerationProcessor(config=config, embeddings=self.transformer.wte, encoder=self.transformer)
             else:
                 self.input_processor = EncoderInputProcessor(config=config, embeddings=self.transformer.wte)
         
