@@ -276,6 +276,13 @@ def parse_args():
         type=int, 
         help='Early stop epoch'
     )
+    parser.add_argument(
+        "--prediction_pooling",
+        type=str,
+        default="last_hidden_state",
+        help="Pooling method for encoder representation.",
+        choices=["last_hidden_state", "mean", "max"],
+    )
 
     args = parser.parse_args()
     
@@ -419,7 +426,7 @@ def main():
         apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
         freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length,
         reparameterize=args.reparameterize, generate=args.generate, encoder_pooling=args.encoder_pooling,
-
+        prediction_pooling=args.prediction_pooling, 
     )
 
     # TODO : fix?

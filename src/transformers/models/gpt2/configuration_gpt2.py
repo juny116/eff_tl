@@ -181,6 +181,7 @@ class GPT2Config(PretrainedConfig):
         reparameterize=False,
         generate=False,
         encoder_pooling=None,
+        prediction_pooling=None,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -232,6 +233,7 @@ class GPT2Config(PretrainedConfig):
         self.reparameterize=reparameterize
         self.generate=generate
         self.encoder_pooling=encoder_pooling
+        self.prediction_pooling=prediction_pooling
 
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
 

@@ -6,7 +6,7 @@ import torch
 from transformers import AutoModel
 
 from .InputProcessor import *
-from .OutputProcessor import BaseOutputProcessor
+from .OutputProcessor import *
 
 
 
@@ -27,7 +27,7 @@ class GPT2Wrapper(torch.nn.Module):
 
         # for output processing (output logits -> loss, prediction)
         self.output_processor = BaseOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
-
+        
         # for other methods (LoRA, Adapter, Prefix-tuning)
         # input_ids -> input_embeds
         if not self.config.apply_input and not self.config.apply_encoder and self.config.prompt_length is None:

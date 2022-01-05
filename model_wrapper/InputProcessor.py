@@ -170,11 +170,12 @@ class EncoderInputProcessor(BaseInputProcessor):
         # shape : (batch, length, encoder_embedding_dim)
         encoder_embeddings = encoder_outputs.last_hidden_state
 
-        sequence_lengths = torch.ne(attention_mask, 0).sum(-1) - 1
         if self.encoder_pooling == "last_hidden_state":
+            sequence_lengths = torch.ne(attention_mask, 0).sum(-1) - 1
             # shape : (batch, encoder_embedding_dim)
             input_dependent_representation = encoder_embeddings[range(batch_size), sequence_lengths]
         elif self.encoder_pooling == "mean":
+            sequence_lengths = torch.ne(attention_mask, 0).sum(-1)
             input_dependent_representation = []
             for i in range(batch_size):
                 last_index = sequence_lengths[i]
@@ -183,6 +184,7 @@ class EncoderInputProcessor(BaseInputProcessor):
             # shape : (batch, encoder_embedding_dim)
             input_dependent_representation = torch.cat(input_dependent_representation, dim=0)
         elif self.encoder_pooling == "max":
+            sequence_lengths = torch.ne(attention_mask, 0).sum(-1)
             input_dependent_representation = []
             for i in range(batch_size):
                 last_index = sequence_lengths[i]
