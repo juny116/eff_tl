@@ -28,11 +28,13 @@ import torch
 import deepspeed
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
-from torch.optim import Adam
+
 from model_wrapper.GPT2Wrapper import GPT2Wrapper
 from model_wrapper.RobertaWrapper import RobertaWrapper
+from ood_utils import load_intent_datasets, preprocess_dataset_for_transformers, collate_fn
 
 from utils import save_config, set_value_to_shared_json_file, get_value_from_shared_json_file
+from functools import partial
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,9 @@ task_to_keys = {
     "sst2": ("sentence", None),
     "stsb": ("sentence1", "sentence2"),
     "wnli": ("sentence1", "sentence2"),
+    'clinc150': ("text", None),
+    'snips': ("text", None),
+    'banking77': ("text", None),
 }
 
 def parse_args():
@@ -254,6 +259,23 @@ def parse_args():
         help='Reparameterize prompt.'
     )
 
+    parser.add_argument(
+        '--split', 
+        action="store_true",
+        help='Split setting for intent datasets.'
+    )
+    parser.add_argument(
+        '--split_ratio', 
+        default=0.5, 
+        type=float, 
+        help='Split ratio for intent datasets.'
+    )
+    parser.add_argument(
+        '--lr_ratio', 
+        default=0.2, 
+        type=float, 
+        help='Learning ratio for custom cosine lr scheduler, must be between 0.1~0.2.'
+    )
     args = parser.parse_args()
     
     # Sanity checks
@@ -330,34 +352,41 @@ def main():
 
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
+    intent_tasks = ['clinc150', 'snips', 'banking77']
     if args.task_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = DatasetDict()
-        if args.max_train_samples is not None:
-            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{args.max_train_samples}]')
+        if args.task_name in intent_tasks:
+            dict_datasets, label_list = load_intent_datasets(args.task_name, split=args.split, ratio=args.split_ratio, check_data=False)
+            dict_datasets = preprocess_dataset_for_transformers(dict_datasets)
+            for k, v in dict_datasets.items():
+                raw_datasets[k] = v
         else:
-            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train')
-        # Since glue test set is not opened, use 1K train as validation and original validation as test
-        
-        # for small datasets (RTE, ...)
-        if len(raw_train_dataset) < 10000:
-            raw_eval_dataset = load_dataset("glue", args.task_name, split=f'validation')
-            eval_test_split = raw_eval_dataset.train_test_split(test_size=0.5)
-            raw_datasets['train'] = raw_train_dataset
-            raw_datasets['validation'] = eval_test_split['train']
-            raw_datasets['test'] = eval_test_split['test']
-        # for larger datasets
-        else:
-            train_test_split = raw_train_dataset.train_test_split(test_size=1000)
-            raw_datasets['train'] = train_test_split['train']
-            raw_datasets['validation'] = train_test_split['test']
-            
-            # for mnli 
-            if args.task_name == "mnli":
-                raw_datasets['test'] = load_dataset("glue", args.task_name, split='validation_matched')
-            # other tasks
+            if args.max_train_samples is not None:
+                raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{args.max_train_samples}]')
             else:
-                raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
+                raw_train_dataset = load_dataset("glue", args.task_name, split=f'train')
+            # Since glue test set is not opened, use 1K train as validation and original validation as test
+            
+            # for small datasets (RTE, ...)
+            if len(raw_train_dataset) < 10000:
+                raw_eval_dataset = load_dataset("glue", args.task_name, split=f'validation')
+                eval_test_split = raw_eval_dataset.train_test_split(test_size=0.5)
+                raw_datasets['train'] = raw_train_dataset
+                raw_datasets['validation'] = eval_test_split['train']
+                raw_datasets['test'] = eval_test_split['test']
+            # for larger datasets
+            else:
+                train_test_split = raw_train_dataset.train_test_split(test_size=1000)
+                raw_datasets['train'] = train_test_split['train']
+                raw_datasets['validation'] = train_test_split['test']
+                
+                # for mnli 
+                if args.task_name == "mnli":
+                    raw_datasets['test'] = load_dataset("glue", args.task_name, split='validation_matched')
+                # other tasks
+                else:
+                    raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
     else:
         # Loading the dataset from local csv or json file.
         data_files = {}
@@ -374,7 +403,7 @@ def main():
             logger.info(f'{split} > {len(dataset)}')
 
     # Labels
-    if args.task_name is not None:
+    if args.task_name is not None and args.task_name not in intent_tasks:
         label_list = raw_datasets["train"].features["label"].names
         num_labels = len(label_list)
     else:
@@ -385,18 +414,14 @@ def main():
 
     # Load pretrained model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
-    # For gpt-2
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.unk_token
-    # TODO: only inject pad_token_id in case of GPT
-    # config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, 
-    #     finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id,
-    #     apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
-    #     apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
-    #     apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
-    #     freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length
-    # )
-    config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name, classifier_dropout=0.1)
+    config = AutoConfig.from_pretrained(args.model_name_or_path)
+
+    # manually add custom configs
+    config.num_labels = num_labels
+    config.prompt_length = args.prompt_length
+    config.apply_input = args.apply_input
+    config.apply_encoder = args.apply_encoder
+    
     # TODO : fix?
     if args.is_zero3:
         with deepspeed.zero.Init(config_dict_or_path=args.ds_config):
@@ -472,11 +497,11 @@ def main():
 
     train_dataset = processed_datasets["train"]
     eval_dataset = processed_datasets["validation"]
-    test_dataset = processed_datasets["test"]
+    test_dataset = processed_datasets["test_ind"]
 
     if args.local_rank == 0:
         # Log a few random samples from the training set:
-        for index in random.sample(range(len(train_dataset)), 1):
+        for index in random.sample(range(len(train_dataset)), 5):
             logger.info(f"Sample {index} of the training set: {train_dataset[index]} {tokenizer.decode(train_dataset[index]['input_ids'])}")
 
         """ FOR ANALYSIS
@@ -498,12 +523,14 @@ def main():
             labels2count[label] = labels2count.get(label, 0) + 1
         logger.info(f'TEST splits : {labels2count}')
         """
-
     # DataLoaders creation:
     if args.pad_to_max_length:
         data_collator = default_data_collator
     else:
-        data_collator = DataCollatorWithPadding(tokenizer)
+        # data_collator = DataCollatorWithPadding(tokenizer)
+        collate_fn_partial = partial(collate_fn, pad_token_id=config.pad_token_id)
+        data_collator = collate_fn_partial
+
 
     train_sampler = DistributedSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size)
@@ -521,7 +548,10 @@ def main():
 
     # Get the metric function
     if args.task_name is not None:
-        metric = load_metric('glue', args.task_name, num_process=args.world_size, process_id=args.local_rank)
+        if args.task_name in ['clinc150', 'snips', 'banking77']:
+            metric = load_metric("accuracy", num_process=args.world_size, process_id=args.local_rank)
+        else:
+            metric = load_metric('glue', args.task_name, num_process=args.world_size, process_id=args.local_rank)
     else:
         metric = load_metric("accuracy", num_process=args.world_size, process_id=args.local_rank)
 
@@ -597,19 +627,18 @@ def main():
             for name, param in model.named_parameters():
                 if param.requires_grad == True:
                     file_writer.write(f"{name} > {param.shape} \n")
-
-    optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr)
-    # optimizer = Adam(optimizer_grouped_parameters, lr=args.lr, betas=(0.9, 0.98), eps=1e-06)
-    # lr_scheduler = get_scheduler(
-    #     name=args.lr_scheduler_type,
-    #     optimizer=optimizer,
-    #     num_warmup_steps=args.num_warmup_steps,
-    #     num_training_steps=args.max_train_steps,
-    # )
-
-    # model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
-    model_engine, optimizer, _, _ = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
     
+    optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr)
+
+    lr_scheduler = get_scheduler(
+        name=args.lr_scheduler_type,
+        optimizer=optimizer,
+        num_warmup_steps=args.num_warmup_steps,
+        num_training_steps=args.max_train_steps,
+    )
+
+    model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
+
     # Train!
     if args.local_rank == 0:
         total_batch_size = args.per_device_batch_size * args.world_size * args.gradient_accumulation_steps

@@ -5,8 +5,8 @@ import torch
 
 from transformers import AutoModel
 
-from .InputProcessor import *
-from .OutputProcessor import BaseOutputProcessor, RobertaOutputProcessor
+from .RobertaInputProcessor import *
+from .RobertaOutputProcessor import BaseOutputProcessor
 
 
 
@@ -26,25 +26,21 @@ class RobertaWrapper(torch.nn.Module):
         self.num_labels = config.num_labels
 
         # for output processing (output logits -> loss, prediction)
-        self.output_processor = RobertaOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
+        self.output_processor = BaseOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
 
-        # self.input_processor = IDPGProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
-        # self.input_processor = RobertaPromptInputProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
-        # self.input_processor = PGProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
-        self.input_processor = ReparamProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
         # # for other methods (LoRA, Adapter, Prefix-tuning)
-        # # input_ids -> input_embeds
-        # if not self.config.apply_input and not self.config.apply_encoder and self.config.prompt_length is None:
-        #     self.input_processor = BaseInputProcessor(config=config, embeddings=self.transformer.wte)
-        # # for PROMPT_TUNING
-        # elif not self.config.apply_input and not self.config.apply_encoder:
-        #     self.input_processor = PromptInputProcessor(config=config, embeddings=self.transformer.wte)
-        # # for PLM encoder + prompt only
-        # elif not self.config.apply_input and self.config.apply_encoder:
-        #     self.input_processor = PromptEncoderInputProcessor(config=config, embeddings=self.transformer.wte)
-        # # for PLM encoder + input dependent
-        # elif self.config.apply_input and self.config.apply_encoder:
-        #     self.input_processor = EncoderInputProcessor(config=config, embeddings=self.transformer.wte)
+        # input_ids -> input_embeds
+        if not self.config.apply_input and not self.config.apply_encoder and self.config.prompt_length is None:
+            self.input_processor = BaseInputProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
+        # for PROMPT_TUNING
+        elif not self.config.apply_input and not self.config.apply_encoder:
+            self.input_processor = PromptInputProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
+        # for PLM encoder + prompt only
+        elif not self.config.apply_input and self.config.apply_encoder:
+            self.input_processor = PromptEncoderInputProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
+        # for PLM encoder + input dependent
+        elif self.config.apply_input and self.config.apply_encoder:
+            self.input_processor = EncoderInputProcessor(config=config, embeddings=self.transformer.get_input_embeddings())
         
 
     def forward(
