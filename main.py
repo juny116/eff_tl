@@ -30,7 +30,11 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 
 from model_wrapper.GPT2Wrapper import GPT2Wrapper
+from model_wrapper.RobertaWrapper import RobertaWrapper
+from ood_utils import load_intent_datasets, preprocess_dataset_for_transformers, collate_fn
+
 from utils import save_config, set_value_to_shared_json_file, get_value_from_shared_json_file
+from functools import partial
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +48,9 @@ task_to_keys = {
     "sst2": ("sentence", None),
     "stsb": ("sentence1", "sentence2"),
     "wnli": ("sentence1", "sentence2"),
+    'clinc150': ("text", None),
+    'snips': ("text", None),
+    'banking77': ("text", None),
 }
 
 def parse_args():
@@ -252,6 +259,23 @@ def parse_args():
         help='Reparameterize prompt.'
     )
 
+    parser.add_argument(
+        '--split', 
+        action="store_true",
+        help='Split setting for intent datasets.'
+    )
+    parser.add_argument(
+        '--split_ratio', 
+        default=0.5, 
+        type=float, 
+        help='Split ratio for intent datasets.'
+    )
+    parser.add_argument(
+        '--lr_ratio', 
+        default=0.2, 
+        type=float, 
+        help='Learning ratio for custom cosine lr scheduler, must be between 0.1~0.2.'
+    )
     args = parser.parse_args()
     
     # Sanity checks
@@ -328,34 +352,41 @@ def main():
 
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
+    intent_tasks = ['clinc150', 'snips', 'banking77']
     if args.task_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = DatasetDict()
-        if args.max_train_samples is not None:
-            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{args.max_train_samples}]')
+        if args.task_name in intent_tasks:
+            dict_datasets, label_list = load_intent_datasets(args.task_name, split=args.split, ratio=args.split_ratio, check_data=False)
+            dict_datasets = preprocess_dataset_for_transformers(dict_datasets)
+            for k, v in dict_datasets.items():
+                raw_datasets[k] = v
         else:
-            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train')
-        # Since glue test set is not opened, use 1K train as validation and original validation as test
-        
-        # for small datasets (RTE, ...)
-        if len(raw_train_dataset) < 10000:
-            raw_eval_dataset = load_dataset("glue", args.task_name, split=f'validation')
-            eval_test_split = raw_eval_dataset.train_test_split(test_size=0.5)
-            raw_datasets['train'] = raw_train_dataset
-            raw_datasets['validation'] = eval_test_split['train']
-            raw_datasets['test'] = eval_test_split['test']
-        # for larger datasets
-        else:
-            train_test_split = raw_train_dataset.train_test_split(test_size=1000)
-            raw_datasets['train'] = train_test_split['train']
-            raw_datasets['validation'] = train_test_split['test']
-            
-            # for mnli 
-            if args.task_name == "mnli":
-                raw_datasets['test'] = load_dataset("glue", args.task_name, split='validation_matched')
-            # other tasks
+            if args.max_train_samples is not None:
+                raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{args.max_train_samples}]')
             else:
-                raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
+                raw_train_dataset = load_dataset("glue", args.task_name, split=f'train')
+            # Since glue test set is not opened, use 1K train as validation and original validation as test
+            
+            # for small datasets (RTE, ...)
+            if len(raw_train_dataset) < 10000:
+                raw_eval_dataset = load_dataset("glue", args.task_name, split=f'validation')
+                eval_test_split = raw_eval_dataset.train_test_split(test_size=0.5)
+                raw_datasets['train'] = raw_train_dataset
+                raw_datasets['validation'] = eval_test_split['train']
+                raw_datasets['test'] = eval_test_split['test']
+            # for larger datasets
+            else:
+                train_test_split = raw_train_dataset.train_test_split(test_size=1000)
+                raw_datasets['train'] = train_test_split['train']
+                raw_datasets['validation'] = train_test_split['test']
+                
+                # for mnli 
+                if args.task_name == "mnli":
+                    raw_datasets['test'] = load_dataset("glue", args.task_name, split='validation_matched')
+                # other tasks
+                else:
+                    raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
     else:
         # Loading the dataset from local csv or json file.
         data_files = {}
@@ -372,7 +403,7 @@ def main():
             logger.info(f'{split} > {len(dataset)}')
 
     # Labels
-    if args.task_name is not None:
+    if args.task_name is not None and args.task_name not in intent_tasks:
         label_list = raw_datasets["train"].features["label"].names
         num_labels = len(label_list)
     else:
@@ -383,25 +414,22 @@ def main():
 
     # Load pretrained model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
-    # For gpt-2
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.unk_token
-    # TODO: only inject pad_token_id in case of GPT
-    config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, 
-        finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id,
-        apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
-        apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
-        apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
-        freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length,
-        reparameterize=args.reparameterize,
-    )
+    config = AutoConfig.from_pretrained(args.model_name_or_path)
 
+    # manually add custom configs
+    config.num_labels = num_labels
+    config.prompt_length = args.prompt_length
+    config.apply_input = args.apply_input
+    config.apply_encoder = args.apply_encoder
+    
     # TODO : fix?
     if args.is_zero3:
         with deepspeed.zero.Init(config_dict_or_path=args.ds_config):
-            model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+            # model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+            model = RobertaWrapper(config=config, model_name_or_path=args.model_name_or_path)
     else:
-        model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+        # model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+        model = RobertaWrapper(config=config, model_name_or_path=args.model_name_or_path)
 
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
@@ -443,7 +471,7 @@ def main():
     def preprocess_function(examples):
         # Tokenize the texts
         texts = (
-            (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key])
+            (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key],)
         )
         result = tokenizer(*texts, padding=padding, max_length=args.max_length, truncation=True)
 
@@ -469,12 +497,12 @@ def main():
 
     train_dataset = processed_datasets["train"]
     eval_dataset = processed_datasets["validation"]
-    test_dataset = processed_datasets["test"]
+    test_dataset = processed_datasets["test_ind"]
 
     if args.local_rank == 0:
         # Log a few random samples from the training set:
-        for index in random.sample(range(len(train_dataset)), 1):
-            logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+        for index in random.sample(range(len(train_dataset)), 5):
+            logger.info(f"Sample {index} of the training set: {train_dataset[index]} {tokenizer.decode(train_dataset[index]['input_ids'])}")
 
         """ FOR ANALYSIS
         labels2count = {}
@@ -495,13 +523,14 @@ def main():
             labels2count[label] = labels2count.get(label, 0) + 1
         logger.info(f'TEST splits : {labels2count}')
         """
-
-
     # DataLoaders creation:
     if args.pad_to_max_length:
         data_collator = default_data_collator
     else:
-        data_collator = DataCollatorWithPadding(tokenizer)
+        # data_collator = DataCollatorWithPadding(tokenizer)
+        collate_fn_partial = partial(collate_fn, pad_token_id=config.pad_token_id)
+        data_collator = collate_fn_partial
+
 
     train_sampler = DistributedSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size)
@@ -519,30 +548,34 @@ def main():
 
     # Get the metric function
     if args.task_name is not None:
-        metric = load_metric('glue', args.task_name, num_process=args.world_size, process_id=args.local_rank)
+        if args.task_name in ['clinc150', 'snips', 'banking77']:
+            metric = load_metric("accuracy", num_process=args.world_size, process_id=args.local_rank)
+        else:
+            metric = load_metric('glue', args.task_name, num_process=args.world_size, process_id=args.local_rank)
     else:
         metric = load_metric("accuracy", num_process=args.world_size, process_id=args.local_rank)
 
     # Set params to train
-    trainable_param_names = []
+    plm_trainable_param_names = []
     if args.apply_lora:
-        trainable_param_names.append('lora')
+        plm_trainable_param_names.append('lora')
     if args.apply_prefix:
-        trainable_param_names.append('prefix')
+        plm_trainable_param_names.append('prefix')
     if args.apply_adapter:
-        trainable_param_names.append('adapter')
+        plm_trainable_param_names.append('adapter')
+    other_trainable_param_names = []
     if args.apply_encoder:
-        trainable_param_names.append('encoder')
+        other_trainable_param_names.append('encoder')
     if args.apply_prompt:
-        trainable_param_names.append('prompt_embeddings')
+        other_trainable_param_names.append('prompt_embeddings')
 
     # if no trainable_param_names -> full fine tune
-    if len(trainable_param_names) > 0:
+    if len(plm_trainable_param_names) > 0 or len(other_trainable_param_names) > 0:
         for name, param in model.named_parameters():
             # train main model? (== fine-tuning)
             if name.startswith('transformer'):
                 param.requires_grad = False
-                for trainable_param_name in trainable_param_names:
+                for trainable_param_name in plm_trainable_param_names:
                     if trainable_param_name in name:
                         if args.local_rank == 0:
                             logger.info(f'>> TRAIN {name} {param.shape} -> {param.numel()}')
@@ -605,7 +638,7 @@ def main():
     )
 
     model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
-    # model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
+
     # Train!
     if args.local_rank == 0:
         total_batch_size = args.per_device_batch_size * args.world_size * args.gradient_accumulation_steps

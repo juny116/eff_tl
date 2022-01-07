@@ -11,7 +11,7 @@ class BaseInputProcessor(torch.nn.Module):
         
         self.config = config
         self.embeddings = embeddings
-        self.embedding_dim = self.embeddings.embedding_dim
+        self.embedding_dim = self.config.hidden_size
 
     def forward(
         self,
@@ -78,9 +78,8 @@ class ReparameterizedInputProcessor(BaseInputProcessor):
         self.encoder_prompt_length = self.config.prompt_length
         assert self.encoder_prompt_length > 0, f'Prompt length must be greater than 0, got {self.encoder_prompt_length}.'
 
-        # This is used to match the same embedding dim as EncoderInputProcessor
-        encoder_config = AutoConfig.from_pretrained(self.config.encoder_model_name_or_path)
-        self.encoder_embedding_dim = encoder_config.n_embd
+        # encoder and inference model is same
+        self.encoder_embedding_dim = self.embedding_dim
         # only one input embedding 
         # works like the [CLS] embedding in BERT/RoBERTa
         # or last hidden state in GPT2
@@ -146,7 +145,7 @@ class EncoderInputProcessor(BaseInputProcessor):
         
         # PLM encoder
         self.encoder = AutoModel.from_pretrained(config.encoder_model_name_or_path)
-        self.encoder_embedding_dim = self.encoder.wte.embedding_dim
+        self.encoder_embedding_dim = self.encoder.config.hidden_size
         self.encoder_generator = torch.nn.Sequential(torch.nn.Linear(self.encoder_embedding_dim, self.encoder_embedding_dim // 2),
                                                     torch.nn.ReLU(),
                                                     torch.nn.Linear(self.encoder_embedding_dim // 2, self.embedding_dim * self.encoder_prompt_length))
@@ -167,10 +166,9 @@ class EncoderInputProcessor(BaseInputProcessor):
         encoder_outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
         # shape : (batch, length, encoder_embedding_dim)
         encoder_embeddings = encoder_outputs.last_hidden_state
-
-        sequence_lengths = torch.ne(attention_mask, 0).sum(-1) - 1
         # shape : (batch, encoder_embedding_dim)
-        input_dependent_representation = encoder_embeddings[range(batch_size), sequence_lengths]
+        # [CLS] token
+        input_dependent_representation = encoder_embeddings[:,0,:]
 
         # shape : (batch, embedding_dim * encoder_prompt_length)
         input_dependent_representation = self.encoder_generator(input_dependent_representation)
@@ -181,8 +179,13 @@ class EncoderInputProcessor(BaseInputProcessor):
         # shape : (batch, encoder_prompt_length)
         input_dependent_attention_mask = torch.ones((batch_size, self.encoder_prompt_length)).to(expanded_input_dependent_representation.device)
 
+        # shape : (batch, 1, embedding)
+        cls_embeddings = input_embeddings[:,0,:].unsqueeze(1)
+        # shape : (batch, length-1, embedding)
+        input_embeddings = input_embeddings[:,1:,:]
+
         # shape : (batch, prompt+max_length, embedding_dim)
-        final_input_embeddings = torch.cat([expanded_input_dependent_representation, input_embeddings], dim=1)
+        final_input_embeddings = torch.cat([cls_embeddings, expanded_input_dependent_representation, input_embeddings], dim=1)
         # shape : (batch, prompt+max_length)
         final_attention_mask = torch.cat([input_dependent_attention_mask, attention_mask], dim=1)
 
@@ -209,7 +212,7 @@ class PromptEncoderInputProcessor(EncoderInputProcessor):
         
         # PLM encoder
         self.encoder = AutoModel.from_pretrained(config.encoder_model_name_or_path)
-        self.encoder_embedding_dim = self.encoder.wte.embedding_dim
+        self.encoder_embedding_dim = self.encoder.config.hidden_size
         self.encoder_generator = torch.nn.Sequential(torch.nn.Linear(self.encoder_embedding_dim, self.encoder_embedding_dim // 2),
                                                     torch.nn.ReLU(),
                                                     torch.nn.Linear(self.encoder_embedding_dim // 2, self.embedding_dim * self.encoder_prompt_length))
@@ -243,9 +246,9 @@ class PromptEncoderInputProcessor(EncoderInputProcessor):
         # shape : (batch, length, encoder_embedding_dim)
         encoder_embeddings = encoder_outputs.last_hidden_state
 
-        sequence_lengths = torch.ne(prompt_attention_mask, 0).sum(-1) - 1
         # shape : (batch, encoder_embedding_dim)
-        input_dependent_representation = encoder_embeddings[range(batch_size), sequence_lengths]
+        # [CLS]
+        input_dependent_representation = encoder_embeddings[:,0,:]
 
         # shape : (batch, embedding_dim * encoder_prompt_length)
         input_dependent_representation = self.encoder_generator(input_dependent_representation)
@@ -256,8 +259,13 @@ class PromptEncoderInputProcessor(EncoderInputProcessor):
         # shape : (batch, encoder_prompt_length)
         input_dependent_attention_mask = torch.ones(batch_size, self.encoder_prompt_length).to(expanded_input_dependent_representation.device)
 
+        # shape : (batch, 1, embedding)
+        cls_embeddings = input_embeddings[:,0,:].unsqueeze(1)
+        # shape : (batch, length-1, embedding)
+        input_embeddings = input_embeddings[:,1:,:]
+
         # shape : (batch, prompt+max_length, embedding_dim)
-        final_input_embeddings = torch.cat([expanded_input_dependent_representation, input_embeddings], dim=1)
+        final_input_embeddings = torch.cat([cls_embeddings, expanded_input_dependent_representation, input_embeddings], dim=1)
         # shape : (batch, prompt+max_length)
         final_attention_mask = torch.cat([input_dependent_attention_mask, attention_mask], dim=1)
 

@@ -11,6 +11,11 @@ class BaseOutputProcessor(torch.nn.Module):
         self.embedding_dim = embedding_dim
         self.num_labels = num_labels
 
+        self.dense = torch.nn.Linear(config.hidden_size, config.hidden_size)
+        classifier_dropout = (
+            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
+        )
+        self.dropout = torch.nn.Dropout(classifier_dropout)
         # final layer for prediction
         self.score = torch.nn.Linear(self.embedding_dim, self.num_labels, bias=False)
         # self.score.to(dtype=torch.half, non_blocking=True)
@@ -24,16 +29,16 @@ class BaseOutputProcessor(torch.nn.Module):
 
         batch_size, _ = attention_mask.shape
 
-        # shape : (batch, length, num_labels)
-        logits = self.score(last_hidden_state)
-
-        # get the index of the final representation
-        sequence_lengths = torch.ne(attention_mask, 0).sum(-1) - 1
-
+        pooled_hidden_state = last_hidden_state[:,0,:]
+        pooled_hidden_state = self.dropout(pooled_hidden_state)
+        pooled_hidden_state = self.dense(pooled_hidden_state)
+        pooled_hidden_state = torch.tanh(pooled_hidden_state)
+        pooled_hidden_state = self.dropout(pooled_hidden_state)
+        
         # shape : (batch, num_labels)
-        pooled_logits = logits[range(batch_size), sequence_lengths]
+        pooled_logits = self.score(pooled_hidden_state)
 
-        ## same code as transformers.GPT2ForSequenceClassification ##
+         ## same code as transformers.GPT2ForSequenceClassification ##
         loss = None
         if self.config.problem_type is None:
             if self.num_labels == 1:
