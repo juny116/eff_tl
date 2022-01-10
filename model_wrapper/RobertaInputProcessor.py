@@ -146,9 +146,9 @@ class EncoderInputProcessor(BaseInputProcessor):
         # PLM encoder
         self.encoder = AutoModel.from_pretrained(config.encoder_model_name_or_path)
         self.encoder_embedding_dim = self.encoder.config.hidden_size
-        self.encoder_generator = torch.nn.Sequential(torch.nn.Linear(self.encoder_embedding_dim, self.encoder_embedding_dim // 2),
+        self.encoder_generator = torch.nn.Sequential(torch.nn.Linear(self.encoder_embedding_dim, self.encoder_embedding_dim // 4),
                                                     torch.nn.ReLU(),
-                                                    torch.nn.Linear(self.encoder_embedding_dim // 2, self.embedding_dim * self.encoder_prompt_length))
+                                                    torch.nn.Linear(self.encoder_embedding_dim // 4, self.embedding_dim * self.encoder_prompt_length))
                 
     def forward(
         self,
@@ -213,9 +213,9 @@ class PromptEncoderInputProcessor(EncoderInputProcessor):
         # PLM encoder
         self.encoder = AutoModel.from_pretrained(config.encoder_model_name_or_path)
         self.encoder_embedding_dim = self.encoder.config.hidden_size
-        self.encoder_generator = torch.nn.Sequential(torch.nn.Linear(self.encoder_embedding_dim, self.encoder_embedding_dim // 2),
+        self.encoder_generator = torch.nn.Sequential(torch.nn.Linear(self.encoder_embedding_dim, self.encoder_embedding_dim // 4),
                                                     torch.nn.ReLU(),
-                                                    torch.nn.Linear(self.encoder_embedding_dim // 2, self.embedding_dim * self.encoder_prompt_length))
+                                                    torch.nn.Linear(self.encoder_embedding_dim // 4, self.embedding_dim * self.encoder_prompt_length))
         
         # shape : (prompt_length, encoder_embedding_dim)
         self.encoder_prompt_embeddings = torch.nn.Embedding(self.encoder_prompt_length, self.encoder_embedding_dim)

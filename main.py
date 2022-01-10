@@ -5,6 +5,7 @@ import math
 import os
 import random
 import json
+import time
 from pathlib import Path
 
 import datasets
@@ -412,15 +413,25 @@ def main():
         label_list.sort()  # Let's sort it for determinism
         num_labels = len(label_list)
 
-    # Load pretrained model and tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
-    config = AutoConfig.from_pretrained(args.model_name_or_path)
+    try:
+        # Load pretrained model and tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
+        config = AutoConfig.from_pretrained(args.model_name_or_path)
+    except:
+        if args.local_rank == 0:
+            logger.info('Error. Reloading after 5 seconds.')
+        time.sleep(5)
+        # Load pretrained model and tokenizer AGAIN
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
+        config = AutoConfig.from_pretrained(args.model_name_or_path)
+
 
     # manually add custom configs
     config.num_labels = num_labels
     config.prompt_length = args.prompt_length
     config.apply_input = args.apply_input
     config.apply_encoder = args.apply_encoder
+    config.encoder_model_name_or_path = args.encoder_model_name_or_path
     
     # TODO : fix?
     if args.is_zero3:
@@ -484,16 +495,16 @@ def main():
                 result["labels"] = examples["label"]
         return result
 
-    if args.local_rank != 0:
-        torch.distributed.barrier()
+    # if args.local_rank != 0:
+    #     torch.distributed.barrier()
     processed_datasets = raw_datasets.map(
         preprocess_function,
         batched=True,
         remove_columns=raw_datasets["train"].column_names,
         desc="Running tokenizer on dataset",
     )
-    if args.local_rank == 0:
-        torch.distributed.barrier()
+    # if args.local_rank == 0:
+    #     torch.distributed.barrier()
 
     train_dataset = processed_datasets["train"]
     eval_dataset = processed_datasets["validation"]
@@ -506,23 +517,42 @@ def main():
 
         """ FOR ANALYSIS
         labels2count = {}
+        input_lengths=[]
         for dataset in train_dataset:
             label = dataset['labels']
             labels2count[label] = labels2count.get(label, 0) + 1
+
+            input_lengths.append(len(dataset['input_ids']))
+
+        average_length = sum(input_lengths) / len(input_lengths)
         logger.info(f'TRAIN splits : {labels2count}')
+        logger.info(f'TRAIN average length : {average_length}')
 
         labels2count = {}
+        input_lengths=[]
         for dataset in eval_dataset:
             label = dataset['labels']
             labels2count[label] = labels2count.get(label, 0) + 1
+
+            input_lengths.append(len(dataset['input_ids']))
+
+        average_length = sum(input_lengths) / len(input_lengths)
         logger.info(f'VALID splits : {labels2count}')
+        logger.info(f'VALID average length : {average_length}')
 
         labels2count = {}
+        input_lengths=[]
         for dataset in test_dataset:
             label = dataset['labels']
             labels2count[label] = labels2count.get(label, 0) + 1
+
+            input_lengths.append(len(dataset['input_ids']))
+
+        average_length = sum(input_lengths) / len(input_lengths)
         logger.info(f'TEST splits : {labels2count}')
+        logger.info(f'TEST average length : {average_length}')
         """
+
     # DataLoaders creation:
     if args.pad_to_max_length:
         data_collator = default_data_collator
@@ -710,7 +740,14 @@ def main():
     # load best dev model 
     # TODO: In ZeRO3 load checkpoint after save checkpoint do not work!!
     if not args.is_zero3:
-        model_engine.load_checkpoint(args.output_dir)
+        try:
+            model_engine.load_checkpoint(args.output_dir)
+        except:
+            if args.local_rank == 0:
+                logger.info('Error loading the best model. Reloading after 5 seconds.')
+            time.sleep(5)
+            model_engine.load_checkpoint(args.output_dir)
+            
         model_engine.eval()
         for step, batch in enumerate(test_dataloader):
             with torch.no_grad():
