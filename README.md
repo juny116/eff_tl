@@ -3,7 +3,7 @@
 ## Installation
 1. Install requirements
 ```bash
-pip install -r requirements
+pip install -r requirements.txt
 ```
 2. Install Custom Transformers Library
 ```bash
@@ -59,19 +59,31 @@ deepspeed main.py
 
 ## Benchmark Results
 ### GPT2-XL (1.5B)
+|Method            |PARAM | MNLI 10% m | SST-2      |MRPC                | RTE    |MNLI   |
+|---               |---   |---         |---         |---                 |---     |---    |
+|Fine tuning       |100%  |82.9        |94.1        |                    |76.6    |       |
+|LoRA              |0.47  |83.7        |95.2        |                    |        |       |
+|Prefix tuning     |0.48  |83.1        |94.95       |                    |        |       |
+|Adapter H         |      |            |            |                    |        |       |
+|Adapter P         |      |            |            |                    |        |       |
+|Prompt tuning     |0.005 |80.0        |            |                    |        |       |
+|IDPG              |0.744 |82.28       |<b>95.65</b>|79.41 / 86.09       |60.99(?)|       |
+|PG                |0.746 |82.52       |95.53       |78.92 / 85.42       |        |       |
+|Reparameterization|0.804 |<b>82.68</b>|94.95       |<b>84.31 / 88.97</b>|        |       |
+|IDPG-trained      |8.090 |81.72       |94.50       |                    |        |       |
+
+### RoBERTa-large (355M)
 |Method            |PARAM | MNLI 10% m | SST-2      |MRPC        | RTE    |MNLI   |
 |---               |---   |---         |---         |---         |---     |---    |
-|Fine tuning       |100%  |82.9        |            |            |76.6    |       |
-|LoRA              |0.47  |83.6        |            |            |        |       |
-|Prefix tuning     |0.48  |83.1        |            |            |        |       |
+|Fine tuning       |      |            |            |            |        |       |
+|LoRA              |      |            |            |            |        |       |
+|Prefix tuning     |      |            |            |            |        |       |
 |Adapter H         |      |            |            |            |        |       |
 |Adapter P         |      |            |            |            |        |       |
-|Prompt tuning     |0.005 |80.0        |            |            |        |       |
-|IDPG              |0.744 |82.28       |<b>95.65</b>|75.00       |60.99(?)|       |
-|PG                |0.746 |82.52       |95.53       |<b>78.92</b>|        |       |
-|Reparameterization|0.804 |<b>82.68</b>|            |            |        |       |
-
-
+|Prompt tuning     |      |            |93.6        |            |        |       |
+|IDPG              |      |            |94.4        |            |        |       |
+|PG                |      |            |94.5        |            |        |       |
+|Reparameterization|      |            |        |            |        |       |
 
 ## Dataset split details
 |Dataset        |Train    | Validation    | Test        |
@@ -84,9 +96,10 @@ deepspeed main.py
 ----
 
 ## Architecture
-![image](https://user-images.githubusercontent.com/29649894/146304303-9a773178-470b-4a96-8026-e832d51bcb48.png)
 
 - IDPG : 12620096 / 1694671104 (0.744%)
+
+![image](https://user-images.githubusercontent.com/29649894/147305170-5303fff4-d48b-44bf-9284-1ac1afdaa656.png)
 
 |Name                                       |Param       |
 |---                                        |---         |
@@ -98,6 +111,9 @@ deepspeed main.py
 
 - PG : 12635456 / 1694686464 (0.746%)
 
+![image](https://user-images.githubusercontent.com/29649894/147305182-9b46cea8-74e8-42a6-8dd4-4fe1267258d1.png)
+
+
 |Name                                             |Param       |
 |---                                              |---         |
 |output_processor.score.weight                    |[3, 1600]   |
@@ -108,6 +124,8 @@ deepspeed main.py
 |input_processor.encoder_prompt_embeddings.weight |[20, 768]   |
 
 - Reparameterization : 12620864 / 1570232064 (0.804%)
+
+![image](https://user-images.githubusercontent.com/29649894/147435274-6f5b4a50-3e03-439e-a37a-dfb6b6b001b9.png)
 
 |Name                                             |Param       |
 |---                                              |---         |
