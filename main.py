@@ -251,6 +251,18 @@ def parse_args():
         action="store_true",
         help='Reparameterize prompt.'
     )
+    parser.add_argument(
+        '--apply_ptuning', 
+        default=False, 
+        action="store_true",
+        help='Apply P-tuning.'
+    )
+    parser.add_argument(
+        '--save_threshold', 
+        default=0, 
+        type=int, 
+        help='Number of prompt tokens.'
+    )
 
     args = parser.parse_args()
     
@@ -393,7 +405,7 @@ def main():
         apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
         apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
         freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length,
-        reparameterize=args.reparameterize,
+        reparameterize=args.reparameterize, apply_ptuning=args.apply_ptuning,
     )
 
     # TODO : fix?
@@ -663,8 +675,12 @@ def main():
                 writer.add_scalar('Validation/F1', eval_metric['f1'], model_engine.global_steps)
             logger.info(f"Valditaion step {model_engine.global_steps} results {eval_metric}")
             if eval_metric['accuracy'] > best_acc:
+                # TODO : save only the models greater than the threshold accuracy
                 best_acc = eval_metric['accuracy']
-                save_flag = True            
+                if best_acc > args.save_threshold:
+                    save_flag = True      
+                else:
+                    save_flag = False      
             else:
                 save_flag = False
         

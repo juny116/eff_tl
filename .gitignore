@@ -1,6 +1,7 @@
 # Custom files
 ds_configs
 scripts
+data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -179,6 +179,7 @@ class GPT2Config(PretrainedConfig):
         freeze_encoder=False,
         prompt_length=None,
         reparameterize=False,
+        apply_ptuning=False,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -228,6 +229,9 @@ class GPT2Config(PretrainedConfig):
         self.freeze_encoder=freeze_encoder
         self.prompt_length=prompt_length
         self.reparameterize=reparameterize
+
+        # P-tuninh
+        self.apply_ptuning=apply_ptuning
 
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
 

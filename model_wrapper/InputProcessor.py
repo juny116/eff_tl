@@ -41,6 +41,16 @@ class PromptInputProcessor(BaseInputProcessor):
 
         self.encoder_prompt_embeddings = torch.nn.Embedding(self.encoder_prompt_length, self.embedding_dim)
 
+        if config.apply_ptuning:
+            self.lstm_head = torch.nn.LSTM(input_size=self.embedding_dim,
+                                           hidden_size=self.embedding_dim,
+                                           num_layers=2,
+                                           bidirectional=True,
+                                           batch_first=True)
+            self.mlp_head = torch.nn.Sequential(torch.nn.Linear(2 * self.embedding_dim, self.embedding_dim),
+                                          torch.nn.ReLU(),
+                                          torch.nn.Linear(self.embedding_dim, self.embedding_dim))
+
                 
     def forward(
         self,
@@ -48,7 +58,7 @@ class PromptInputProcessor(BaseInputProcessor):
         attention_mask:torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
 
-        batch_size, _ = input_ids.shape
+        batch_size, length = input_ids.shape
 
         # shape : (batch, length, embedding_dim)
         input_embeddings = self.embeddings(input_ids)
@@ -63,8 +73,22 @@ class PromptInputProcessor(BaseInputProcessor):
         encoder_prompt_attention_mask = torch.ones(self.encoder_prompt_length).to(input_embeddings.device)
         prompt_attention_mask = encoder_prompt_attention_mask.unsqueeze(0).expand(batch_size, self.encoder_prompt_length)
 
+        if self.config.apply_ptuning:
+            # shape : (batch, prompt_length, embedding_dim)
+            prompt_embeddings = self.lstm_head(prompt_embeddings)[0]
+            if self.encoder_prompt_length == 1:
+                prompt_embeddings = self.mlp_head(prompt_embeddings)
+            else:
+                prompt_embeddings = self.mlp_head(prompt_embeddings).squeeze()
+
+
         input_embeddings = torch.cat([prompt_embeddings, input_embeddings], dim=1)
         attention_mask = torch.cat([prompt_attention_mask, attention_mask], dim=1)
+
+        assert batch_size == input_embeddings.shape[0]
+        assert batch_size == attention_mask.shape[0]
+        assert length+self.encoder_prompt_length == input_embeddings.shape[1]
+        assert length+self.encoder_prompt_length == attention_mask.shape[1]
 
         # input_embeddings : (batch, length, embedding_dim)
         # attention_mask   : (batch, length)
