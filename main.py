@@ -213,61 +213,25 @@ def parse_args():
         action="store_true",
         help='apply adapter tuning params'
     )
-
-    ## OURS ##
-    parser.add_argument(
-        '--apply_encoder', 
-        default=False, 
-        action="store_true",
-        help='Apply input dependent encoder.'
-    )
-    parser.add_argument(
-        '--apply_input', 
-        default=False, 
-        action="store_true",
-        help='Apply input for prompt generating.'
-    )
-    parser.add_argument(
-        '--encoder_model_name_or_path', 
-        default='gpt2', 
-        type=str, 
-        help='PLM for encoder.'
-    )
-    parser.add_argument(
-        '--freeze_encoder', 
-        default=False, 
-        action="store_true",
-        help='Freeze PLM for the encoder.'
-    )
-    parser.add_argument(
-        '--apply_prompt', 
-        default=False, 
-        action="store_true",
-        help='apply prompt tuning'
-    )
-    parser.add_argument(
-        '--prompt_length', 
-        default=None, 
-        type=int, 
-        help='Number of prompt tokens.'
-    )
-    parser.add_argument(
-        '--reparameterize', 
-        default=False, 
-        action="store_true",
-        help='Reparameterize prompt.'
-    )
-    parser.add_argument(
-        '--apply_ptuning', 
-        default=False, 
-        action="store_true",
-        help='Apply P-tuning.'
-    )
     parser.add_argument(
         '--save_threshold', 
         default=0, 
         type=int, 
         help='Number of prompt tokens.'
+    )
+
+    ## OURS ##
+    parser.add_argument(
+        '--apply_reverse', 
+        default=False, 
+        action="store_true",
+        help='apply reverse inputs.'
+    )
+    parser.add_argument(
+        '--apply_head', 
+        default=False, 
+        action="store_true",
+        help='apply linear probing.'
     )
 
     args = parser.parse_args()
@@ -409,9 +373,7 @@ def main():
         finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id,
         apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
         apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
-        apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
-        freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length,
-        reparameterize=args.reparameterize, apply_ptuning=args.apply_ptuning,
+        apply_reverse=args.apply_reverse, apply_head=args.apply_head
     )
 
     # TODO : fix?
@@ -459,11 +421,21 @@ def main():
     padding = "max_length" if args.pad_to_max_length else False
 
     def preprocess_function(examples):
+        
         # Tokenize the texts
         texts = (
             (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key])
         )
         result = tokenizer(*texts, padding=padding, max_length=args.max_length, truncation=True)
+
+        input_ids = result['input_ids']
+
+        reversed_input_ids = []
+        for input_id in input_ids:
+            reversed_input_id = input_id.copy()
+            reversed_input_id.reverse()
+            reversed_input_ids.append(reversed_input_id)
+        result["reversed_input_ids"] = reversed_input_ids
 
         if "label" in examples:
             if label_to_id is not None:
@@ -484,6 +456,7 @@ def main():
     )
     if args.local_rank == 0:
         torch.distributed.barrier()
+
 
     train_dataset = processed_datasets["train"]
     eval_dataset = processed_datasets["validation"]
@@ -513,7 +486,6 @@ def main():
             labels2count[label] = labels2count.get(label, 0) + 1
         logger.info(f'TEST splits : {labels2count}')
         """
-
 
     # DataLoaders creation:
     if args.pad_to_max_length:
@@ -549,10 +521,10 @@ def main():
         trainable_param_names.append('prefix')
     if args.apply_adapter:
         trainable_param_names.append('adapter')
-    if args.apply_encoder:
-        trainable_param_names.append('encoder')
-    if args.apply_prompt:
-        trainable_param_names.append('prompt_embeddings')
+    if args.apply_reverse:
+        trainable_param_names.append('reverse')
+    if args.apply_head:
+        trainable_param_names.append('head')
 
     # if no trainable_param_names -> full fine tune
     if len(trainable_param_names) > 0:
