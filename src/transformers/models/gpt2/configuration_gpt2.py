@@ -173,13 +173,8 @@ class GPT2Config(PretrainedConfig):
         num_prefix=0,
         mid_dim=0,
         # OURS
-        apply_encoder=False,
-        apply_input=False,
-        encoder_model_name_or_path=None,
-        freeze_encoder=False,
-        prompt_length=None,
-        reparameterize=False,
-        apply_ptuning=False,
+        apply_reverse=False,
+        apply_head=False,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -223,15 +218,8 @@ class GPT2Config(PretrainedConfig):
         self.mid_dim=mid_dim
 
         # for OUR method
-        self.apply_encoder=apply_encoder
-        self.apply_input=apply_input
-        self.encoder_model_name_or_path=encoder_model_name_or_path
-        self.freeze_encoder=freeze_encoder
-        self.prompt_length=prompt_length
-        self.reparameterize=reparameterize
-
-        # P-tuninh
-        self.apply_ptuning=apply_ptuning
+        self.apply_reverse=apply_reverse
+        self.apply_head=apply_head
 
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
 
