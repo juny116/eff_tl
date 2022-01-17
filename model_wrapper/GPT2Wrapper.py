@@ -1,5 +1,6 @@
 
 from typing import Tuple
+import time
 
 import torch
 
@@ -26,10 +27,14 @@ class GPT2Wrapper(torch.nn.Module):
         self.num_labels = config.num_labels
 
         if config.apply_reverse:
+            print('REVERSE INPUT AND OUTPUT....')
+            time.sleep(3)
             self.input_processor = ReverseInputProcessor(config=config, embeddings=self.transformer.wte)
             # goes through (embedding_dim * 2, num_label) linear layer
             self.output_processor = ReverseInputOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
         else:
+            print('ORIGINAL INPUT AND OUTPUT....')
+            time.sleep(3)
             # default input and output processor for out toy task
             self.input_processor = BaseInputProcessor(config=config, embeddings=self.transformer.wte)
             # goes through (embedding_dim, num_label) linear layer
