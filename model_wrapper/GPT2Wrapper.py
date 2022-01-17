@@ -59,23 +59,15 @@ class GPT2Wrapper(torch.nn.Module):
             # reversed_input
             reversed_outputs = self.transformer(inputs_embeds=reversed_input_embeddings, attention_mask=attention_mask)
             
-            # shape : (batch, length, embedding_dim)
-            last_hidden_state = outputs.last_hidden_state
-            # shape : (batch, length, embedding_dim)
-            reversed_last_hidden_state = reversed_outputs.last_hidden_state
+            
+            # # shape : (batch, length, embedding_dim)
+            last_hidden_state = outputs.last_hidden_state.unsqueeze(-1)
+            # # shape : (batch, length, embedding_dim)
+            reversed_last_hidden_state = reversed_outputs.last_hidden_state.unsqueeze(-1)
 
-            # shape : (batch, )
-            input_lengths = torch.ne(attention_mask, 0).sum(-1)
-            for batch, length in enumerate(input_lengths):
-                for index in range(length):
-                    # shape : (hidden_dim, )
-                    state = last_hidden_state[batch, index, :].unsqueeze(-1)
-                    reverse_state = reversed_last_hidden_state[batch, length-1-index, :].unsqueeze(-1)
-                    # shape : (hidden_dim, 2)
-                    mean_state = torch.cat([state, reverse_state], dim=-1)
-                    # shape : (hidden_dim, )
-                    mean_state = torch.mean(mean_state, dim=-1)
-                    last_hidden_state[batch, index] = mean_state
+            tmp = torch.cat([last_hidden_state, reversed_last_hidden_state], dim=-1)
+            last_hidden_state = torch.mean(tmp, dim=-1)
+
         else:
             inputs_embeds, attention_mask = self.input_processor(input_ids=input_ids, attention_mask=attention_mask)
             outputs = self.transformer(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
