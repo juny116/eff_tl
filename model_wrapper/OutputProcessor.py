@@ -63,3 +63,10 @@ class BaseOutputProcessor(torch.nn.Module):
         # loss        : (batch, )
         # predictions : (batch, )
         return loss, predictions
+
+class ReverseInputOutputProcessor(BaseOutputProcessor):
+    def __init__(self, config, embedding_dim, num_labels):
+        super().__init__(config, embedding_dim, num_labels)
+
+        # final layer for prediction
+        self.score = torch.nn.Linear(self.embedding_dim*2, self.num_labels, bias=False)

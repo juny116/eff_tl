@@ -6,7 +6,7 @@ import torch
 from transformers import AutoModel
 
 from .InputProcessor import ReverseInputProcessor, BaseInputProcessor
-from .OutputProcessor import BaseOutputProcessor
+from .OutputProcessor import BaseOutputProcessor, ReverseInputOutputProcessor
 
 
 
@@ -27,13 +27,14 @@ class GPT2Wrapper(torch.nn.Module):
 
         if config.apply_reverse:
             self.input_processor = ReverseInputProcessor(config=config, embeddings=self.transformer.wte)
+            # goes through (embedding_dim * 2, num_label) linear layer
+            self.output_processor = ReverseInputOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
         else:
             # default input and output processor for out toy task
             self.input_processor = BaseInputProcessor(config=config, embeddings=self.transformer.wte)
-        self.output_processor = BaseOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
-            
-    
-
+            # goes through (embedding_dim, num_label) linear layer
+            self.output_processor = BaseOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
+        
     def forward(
         self,
         input_ids=None,
@@ -61,20 +62,18 @@ class GPT2Wrapper(torch.nn.Module):
             
             
             # # shape : (batch, length, embedding_dim)
-            last_hidden_state = outputs.last_hidden_state.unsqueeze(-1)
+            last_hidden_state = outputs.last_hidden_state
             # # shape : (batch, length, embedding_dim)
-            reversed_last_hidden_state = reversed_outputs.last_hidden_state.unsqueeze(-1)
+            reversed_last_hidden_state = reversed_outputs.last_hidden_state
 
-            tmp = torch.cat([last_hidden_state, reversed_last_hidden_state], dim=-1)
-            last_hidden_state = torch.mean(tmp, dim=-1)
-
+            # shape : (batch, length, embedding_dim * 2)
+            last_hidden_state = torch.cat([last_hidden_state, reversed_last_hidden_state], dim=2)
         else:
             inputs_embeds, attention_mask = self.input_processor(input_ids=input_ids, attention_mask=attention_mask)
             outputs = self.transformer(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
 
             # shape : (batch, length, embedding_dim)
             last_hidden_state = outputs.last_hidden_state
-
         # loss        : (batch, )
         # predictions : (batch, )
         loss, predictions = self.output_processor(last_hidden_state=last_hidden_state, attention_mask=attention_mask, labels=labels)
