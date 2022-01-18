@@ -111,6 +111,12 @@ def parse_args():
         help="Total number of training epochs to perform."
     )
     parser.add_argument(
+        "--early_stop", 
+        type=int, 
+        default=5, 
+        help="Number of epoch for early stopping."
+    )
+    parser.add_argument(
         "--max_train_steps",
         type=int,
         default=None,
@@ -638,8 +644,11 @@ def main():
     progress_bar = tqdm(range(args.max_train_steps), disable=(args.local_rank != 0))
     completed_steps = 0
     best_acc = 0
+    ealrt_stop_cnt = 0
     save_flag = False
     for epoch in range(args.num_train_epochs):
+        if ealrt_stop_cnt >= args.early_stop:
+            break
         model_engine.train()
         for step, batch in enumerate(train_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
@@ -689,6 +698,10 @@ def main():
         save_flag = get_value_from_shared_json_file(args.output_dir, 'save_flag')
         if save_flag:
             model_engine.save_checkpoint(args.output_dir)
+            ealrt_stop_cnt = 0
+        else:
+            ealrt_stop_cnt += 1
+
     
     # load best dev model 
     # TODO: In ZeRO3 load checkpoint after save checkpoint do not work!!
