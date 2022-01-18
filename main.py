@@ -668,9 +668,8 @@ def main():
         try:
             model_engine.load_checkpoint(args.output_dir)
         except:
-            logger.info('ERROR. TRY LOADING AGAIN...')
+            logger.info('ERROR LOADING MODEL FOR FINAL TEST. RETRY.')
             model_engine.load_checkpoint(args.output_dir)
-            
         model_engine.eval()
         for step, batch in enumerate(test_dataloader):
             with torch.no_grad():

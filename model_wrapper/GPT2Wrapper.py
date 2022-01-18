@@ -1,12 +1,13 @@
 
 from typing import Tuple
+import time
 
 import torch
 
 from transformers import AutoModel
 
 from .InputProcessor import ReverseInputProcessor, BaseInputProcessor
-from .OutputProcessor import BaseOutputProcessor
+from .OutputProcessor import BaseOutputProcessor, ReverseInputOutputProcessor
 
 
 
@@ -26,14 +27,19 @@ class GPT2Wrapper(torch.nn.Module):
         self.num_labels = config.num_labels
 
         if config.apply_reverse:
+            print('REVERSE INPUT AND OUTPUT....')
+            time.sleep(3)
             self.input_processor = ReverseInputProcessor(config=config, embeddings=self.transformer.wte)
+            # goes through (embedding_dim * 2, num_label) linear layer
+            self.output_processor = ReverseInputOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
         else:
+            print('ORIGINAL INPUT AND OUTPUT....')
+            time.sleep(3)
             # default input and output processor for out toy task
             self.input_processor = BaseInputProcessor(config=config, embeddings=self.transformer.wte)
-        self.output_processor = BaseOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
-            
-    
-
+            # goes through (embedding_dim, num_label) linear layer
+            self.output_processor = BaseOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
+        
     def forward(
         self,
         input_ids=None,
@@ -59,30 +65,20 @@ class GPT2Wrapper(torch.nn.Module):
             # reversed_input
             reversed_outputs = self.transformer(inputs_embeds=reversed_input_embeddings, attention_mask=attention_mask)
             
-            # shape : (batch, length, embedding_dim)
+            
+            # # shape : (batch, length, embedding_dim)
             last_hidden_state = outputs.last_hidden_state
-            # shape : (batch, length, embedding_dim)
+            # # shape : (batch, length, embedding_dim)
             reversed_last_hidden_state = reversed_outputs.last_hidden_state
 
-            # shape : (batch, )
-            input_lengths = torch.ne(attention_mask, 0).sum(-1)
-            for batch, length in enumerate(input_lengths):
-                for index in range(length):
-                    # shape : (hidden_dim, )
-                    state = last_hidden_state[batch, index, :].unsqueeze(-1)
-                    reverse_state = reversed_last_hidden_state[batch, length-1-index, :].unsqueeze(-1)
-                    # shape : (hidden_dim, 2)
-                    mean_state = torch.cat([state, reverse_state], dim=-1)
-                    # shape : (hidden_dim, )
-                    mean_state = torch.mean(mean_state, dim=-1)
-                    last_hidden_state[batch, index] = mean_state
+            # shape : (batch, length, embedding_dim * 2)
+            last_hidden_state = torch.cat([last_hidden_state, reversed_last_hidden_state], dim=2)
         else:
             inputs_embeds, attention_mask = self.input_processor(input_ids=input_ids, attention_mask=attention_mask)
             outputs = self.transformer(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
 
             # shape : (batch, length, embedding_dim)
             last_hidden_state = outputs.last_hidden_state
-
         # loss        : (batch, )
         # predictions : (batch, )
         loss, predictions = self.output_processor(last_hidden_state=last_hidden_state, attention_mask=attention_mask, labels=labels)
