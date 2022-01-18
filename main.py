@@ -665,7 +665,12 @@ def main():
     # load best dev model 
     # TODO: In ZeRO3 load checkpoint after save checkpoint do not work!!
     if not args.is_zero3:
-        model_engine.load_checkpoint(args.output_dir)
+        try:
+            model_engine.load_checkpoint(args.output_dir)
+        except:
+            logger.info('ERROR. TRY LOADING AGAIN...')
+            model_engine.load_checkpoint(args.output_dir)
+            
         model_engine.eval()
         for step, batch in enumerate(test_dataloader):
             with torch.no_grad():
