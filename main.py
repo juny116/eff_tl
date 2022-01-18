@@ -521,8 +521,6 @@ def main():
         trainable_param_names.append('prefix')
     if args.apply_adapter:
         trainable_param_names.append('adapter')
-    if args.apply_reverse:
-        trainable_param_names.append('reverse')
     if args.apply_head:
         trainable_param_names.append('head')
 
