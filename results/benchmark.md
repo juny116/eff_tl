@@ -4,6 +4,8 @@
 
 |Method            |SEED |PARAM(%)|Task       |lr           |Train Epochs|Warmup Step|Accuracy      |
 |---               |---  |---     |---        |---          |---         |---        |---           |
+|Fine tuning       |1234 |100     |MNLI 100% m|1e-5         |10          |1,000      |<b>86.2</b>   |
+|---               |---  |---     |---        |---          |---         |---        |---           |
 |Fine tuning       |1234 |100     |MNLI 10% m |1e-5         |30          |1,000      |<b>82.9</b>   |
 |LoRA              |1234 |0.47    |MNLI 10% m |8e-5         |40          |1,000      |83.6          |
 |LoRA              |1234 |0.47    |MNLI 10% m |5e-5         |40          |1,000      |<b>83.7</b>   |
