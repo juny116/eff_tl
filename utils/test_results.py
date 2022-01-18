@@ -111,12 +111,6 @@ def parse_args():
         help="Total number of training epochs to perform."
     )
     parser.add_argument(
-        "--early_stop", 
-        type=int, 
-        default=5, 
-        help="Number of epoch for early stopping."
-    )
-    parser.add_argument(
         "--max_train_steps",
         type=int,
         default=None,
@@ -462,31 +456,6 @@ def main():
     eval_dataset = processed_datasets["validation"]
     test_dataset = processed_datasets["test"]
 
-    if args.local_rank == 0:
-        # Log a few random samples from the training set:
-        for index in random.sample(range(len(train_dataset)), 1):
-            logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
-
-        """ FOR ANALYSIS
-        labels2count = {}
-        for dataset in train_dataset:
-            label = dataset['labels']
-            labels2count[label] = labels2count.get(label, 0) + 1
-        logger.info(f'TRAIN splits : {labels2count}')
-
-        labels2count = {}
-        for dataset in eval_dataset:
-            label = dataset['labels']
-            labels2count[label] = labels2count.get(label, 0) + 1
-        logger.info(f'VALID splits : {labels2count}')
-
-        labels2count = {}
-        for dataset in test_dataset:
-            label = dataset['labels']
-            labels2count[label] = labels2count.get(label, 0) + 1
-        logger.info(f'TEST splits : {labels2count}')
-        """
-
     # DataLoaders creation:
     if args.pad_to_max_length:
         data_collator = default_data_collator
@@ -513,43 +482,6 @@ def main():
     else:
         metric = load_metric("accuracy", num_process=args.world_size, process_id=args.local_rank)
 
-    # Set params to train
-    trainable_param_names = []
-    if args.apply_lora:
-        trainable_param_names.append('lora')
-    if args.apply_prefix:
-        trainable_param_names.append('prefix')
-    if args.apply_adapter:
-        trainable_param_names.append('adapter')
-    if args.apply_head:
-        trainable_param_names.append('head')
-
-    # if no trainable_param_names -> full fine tune
-    if len(trainable_param_names) > 0:
-        for name, param in model.named_parameters():
-            # train main model? (== fine-tuning)
-            if name.startswith('transformer'):
-                param.requires_grad = False
-                for trainable_param_name in trainable_param_names:
-                    if trainable_param_name in name:
-                        if args.local_rank == 0:
-                            logger.info(f'>> TRAIN {name} {param.shape} -> {param.numel()}')
-                        param.requires_grad = True
-            else:
-                # train PLM encoder?
-                if "input_processor.encoder." in name:
-                    if args.freeze_encoder:
-                        param.requires_grad = False
-                    else: 
-                        param.requires_grad = True
-                        if args.local_rank == 0:
-                            logger.info(f'>> TRAINED ENCODER {name} {param.shape} -> {param.numel()}')
-                else:
-                    param.requires_grad = True
-                    if args.local_rank == 0:
-                        logger.info(f'>> OTHERS {name} {param.shape} -> {param.numel()}')
-                
-    # Split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
         {
@@ -567,21 +499,6 @@ def main():
         num_total_params = sum(p.numel() for p in model.parameters())
         transformer_params = sum(p.numel() for n,p in model.named_parameters() if n.startswith('transformer'))
         logger.info(f'trainable params {num_trainable_params} / total params {num_total_params} = ratio {100 * num_trainable_params/num_total_params} ')
-        
-        ## Write parameter info ##
-        parameter_summary_file = os.path.join(args.output_dir, "parameter_summary.txt")
-        with open(parameter_summary_file, "w") as file_writer:
-            file_writer.write("Overall Parameter Summary\n")
-            file_writer.write(f"Trained     parameters\t{num_trainable_params}\n")
-            file_writer.write(f"Transformer parameters\t{transformer_params}\n")
-            file_writer.write(f"Total       parameters\t{num_total_params}\n")
-            file_writer.write(f"Trainable   ratio\t\t{100 * num_trainable_params / num_total_params} \n")
-            file_writer.write("=" * 50 + '\n')
-            file_writer.write("Trained parameters detail\n")
-
-            for name, param in model.named_parameters():
-                if param.requires_grad == True:
-                    file_writer.write(f"{name} > {param.shape} \n")
     
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr)
 
@@ -591,87 +508,7 @@ def main():
         num_warmup_steps=args.num_warmup_steps,
         num_training_steps=args.max_train_steps,
     )
-
     model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
-    # model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
-    # Train!
-    if args.local_rank == 0:
-        total_batch_size = args.per_device_batch_size * args.world_size * args.gradient_accumulation_steps
-        logger.info("***** Running training *****")
-        logger.info(f"  Num examples = {len(train_dataset)}")
-        logger.info(f"  Num Epochs = {args.num_train_epochs}")
-        logger.info(f"  Instantaneous batch size per device = {args.per_device_batch_size}")
-        logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
-        logger.info(f"  World Size = {args.world_size}")
-        logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-        logger.info(f"  Random Seed = {args.seed}")
-        logger.info(f"  Total optimization steps = {args.max_train_steps}")
-        logger.info(f"  Number of trainable params = {num_trainable_params}")
-        logger.info(f"  Number of total params = {num_total_params}")
-        logger.info(f"  % of trainable params = {(100 * num_trainable_params/num_total_params):.3f}")
-
-    # # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(args.max_train_steps), disable=(args.local_rank != 0))
-    completed_steps = 0
-    best_acc = 0
-    ealrt_stop_cnt = 0
-    save_flag = False
-    for epoch in range(args.num_train_epochs):
-        if ealrt_stop_cnt >= args.early_stop:
-            break
-        model_engine.train()
-        for step, batch in enumerate(train_dataloader):
-            batch = {k: v.cuda() for k, v in batch.items()}
-            loss, _ = model_engine(**batch)
-            loss = loss / args.gradient_accumulation_steps
-            if args.local_rank == 0:
-                writer.add_scalar('Train/Loss', loss, model_engine.global_steps)
-                writer.add_scalar('Train/LR', model_engine.get_lr()[0], model_engine.global_steps)
-            model_engine.backward(loss)
-            if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
-                # model step manages optimizer
-                model_engine.step()
-                progress_bar.update(1)
-                completed_steps += 1
-
-            if completed_steps >= args.max_train_steps:
-                break
-
-        model_engine.eval()
-        for step, batch in enumerate(eval_dataloader):
-            with torch.no_grad():
-                batch = {k: v.cuda() for k, v in batch.items()}
-                loss, predictions = model_engine(**batch)
-                
-                metric.add_batch(
-                    predictions=predictions,
-                    references=batch["labels"],
-                )
-        eval_metric = metric.compute()
-        if args.local_rank == 0:
-            writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model_engine.global_steps)
-            if "f1" in eval_metric.keys():
-                writer.add_scalar('Validation/F1', eval_metric['f1'], model_engine.global_steps)
-            logger.info(f"Valditaion step {model_engine.global_steps} results {eval_metric}")
-            if eval_metric['accuracy'] > best_acc:
-                # TODO : save only the models greater than the threshold accuracy
-                best_acc = eval_metric['accuracy']
-                if best_acc > args.save_threshold:
-                    save_flag = True      
-                else:
-                    save_flag = False      
-            else:
-                save_flag = False
-        
-        # path, key, value, current rank, writer rank
-        set_value_to_shared_json_file(args.output_dir, 'save_flag', save_flag, args.local_rank, 0)
-        save_flag = get_value_from_shared_json_file(args.output_dir, 'save_flag')
-        if save_flag:
-            model_engine.save_checkpoint(args.output_dir)
-            ealrt_stop_cnt = 0
-        else:
-            ealrt_stop_cnt += 1
-
     
     # load best dev model 
     # TODO: In ZeRO3 load checkpoint after save checkpoint do not work!!
