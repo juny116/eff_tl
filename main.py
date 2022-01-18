@@ -618,6 +618,8 @@ def main():
     save_flag = False
     for epoch in range(args.num_train_epochs):
         if ealrt_stop_cnt >= args.early_stop:
+            if args.local_rank == 0:
+                logger.info("EARLY STOP. STOP TRAINING.")
             break
         model_engine.train()
         for step, batch in enumerate(train_dataloader):
@@ -668,9 +670,11 @@ def main():
         save_flag = get_value_from_shared_json_file(args.output_dir, 'save_flag')
         if save_flag:
             model_engine.save_checkpoint(args.output_dir)
-            ealrt_stop_cnt = 0
+            ealry_stop_cnt = 0
         else:
-            ealrt_stop_cnt += 1
+            ealry_stop_cnt += 1
+        if args.local_rank == 0:
+            logger.info(f'EARLY STOP COUNT : {ealry_stop_cnt} / {args.early_stop}')
 
     
     # load best dev model 
