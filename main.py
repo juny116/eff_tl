@@ -18,9 +18,10 @@ from transformers import (
     AdamW,
     AutoConfig,
     AutoTokenizer,
+    DataCollatorForLanguageModeling,
     DataCollatorWithPadding,
-    PretrainedConfig,
     default_data_collator,
+    PretrainedConfig,
     get_scheduler,
     set_seed,
 )
@@ -216,58 +217,16 @@ def parse_args():
 
     ## OURS ##
     parser.add_argument(
-        '--apply_encoder', 
-        default=False, 
-        action="store_true",
-        help='Apply input dependent encoder.'
-    )
-    parser.add_argument(
-        '--apply_input', 
-        default=False, 
-        action="store_true",
-        help='Apply input for prompt generating.'
-    )
-    parser.add_argument(
-        '--encoder_model_name_or_path', 
-        default='gpt2', 
-        type=str, 
-        help='PLM for encoder.'
-    )
-    parser.add_argument(
-        '--freeze_encoder', 
-        default=False, 
-        action="store_true",
-        help='Freeze PLM for the encoder.'
-    )
-    parser.add_argument(
-        '--apply_prompt', 
-        default=False, 
-        action="store_true",
-        help='apply prompt tuning'
-    )
-    parser.add_argument(
-        '--prompt_length', 
-        default=None, 
-        type=int, 
-        help='Number of prompt tokens.'
-    )
-    parser.add_argument(
-        '--reparameterize', 
-        default=False, 
-        action="store_true",
-        help='Reparameterize prompt.'
-    )
-    parser.add_argument(
-        '--apply_ptuning', 
-        default=False, 
-        action="store_true",
-        help='Apply P-tuning.'
-    )
-    parser.add_argument(
         '--save_threshold', 
         default=0, 
         type=int, 
         help='Number of prompt tokens.'
+    )
+    parser.add_argument(
+        "--mlm_probability", 
+        type=float, 
+        default=0.15, 
+        help="Ratio of tokens to mask for masked language modeling loss"
     )
 
     args = parser.parse_args()
@@ -404,14 +363,14 @@ def main():
     # For gpt-2
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
+    if tokenizer.mask_token is None:
+        tokenizer.mask_token = tokenizer.unk_token
+
     # TODO: only inject pad_token_id in case of GPT
     config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, 
         finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id,
         apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
         apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
-        apply_encoder=args.apply_encoder, apply_input=args.apply_input, encoder_model_name_or_path=args.encoder_model_name_or_path,
-        freeze_encoder=args.freeze_encoder, prompt_length=args.prompt_length,
-        reparameterize=args.reparameterize, apply_ptuning=args.apply_ptuning,
     )
 
     # TODO : fix?
@@ -516,6 +475,8 @@ def main():
 
 
     # DataLoaders creation:
+    mlm_data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=args.mlm_probability)
+
     if args.pad_to_max_length:
         data_collator = default_data_collator
     else:
@@ -523,10 +484,15 @@ def main():
 
     train_sampler = DistributedSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size)
+    mlm_train_dataloader = DataLoader(train_dataset, sampler=train_sampler, collate_fn=mlm_data_collator, batch_size=args.per_device_batch_size)
+    
     eval_sampler = DistributedSampler(eval_dataset)
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)
+    mlm_eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, collate_fn=mlm_data_collator, batch_size=args.per_device_batch_size, shuffle=False)
+    
     test_sampler = DistributedSampler(test_dataset)
     test_dataloader = DataLoader(test_dataset, sampler=test_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)       
+    mlm_test_dataloader = DataLoader(test_dataset, sampler=test_sampler, collate_fn=mlm_data_collator, batch_size=args.per_device_batch_size, shuffle=False)       
 
     # math around the number of training steps.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -549,10 +515,6 @@ def main():
         trainable_param_names.append('prefix')
     if args.apply_adapter:
         trainable_param_names.append('adapter')
-    if args.apply_encoder:
-        trainable_param_names.append('encoder')
-    if args.apply_prompt:
-        trainable_param_names.append('prompt_embeddings')
 
     # if no trainable_param_names -> full fine tune
     if len(trainable_param_names) > 0:
@@ -652,14 +614,24 @@ def main():
                 logger.info("EARLY STOP. STOP TRAINING.")
             break
         model_engine.train()
-        for step, batch in enumerate(train_dataloader):
+
+        mlm_loss_ratio = 0.5 - epoch * 0.5 / args.num_train_epochs
+        classification_loss_ratio = 0.5 + epoch * 0.5 / args.num_train_epochs
+        if args.local_rank == 0:
+            logger.info(f'Loss ratio : classification : {round(classification_loss_ratio,3)}, mlm : {round(mlm_loss_ratio,3)} > total : {mlm_loss_ratio + classification_loss_ratio}')
+
+        for step, batch in enumerate(mlm_train_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
-            loss, _ = model_engine(**batch)
-            loss = loss / args.gradient_accumulation_steps
+            
+            loss, mlm_loss, _ = model_engine(**batch)
+            total_loss = loss * classification_loss_ratio + mlm_loss * mlm_loss_ratio
+            total_loss = total_loss / args.gradient_accumulation_steps
             if args.local_rank == 0:
-                writer.add_scalar('Train/Loss', loss, model_engine.global_steps)
+                writer.add_scalar('Train/Loss', total_loss, model_engine.global_steps)
+                writer.add_scalar('Train/MLM Loss', mlm_loss, model_engine.global_steps)
+                writer.add_scalar('Train/Classification Loss', loss, model_engine.global_steps)
                 writer.add_scalar('Train/LR', model_engine.get_lr()[0], model_engine.global_steps)
-            model_engine.backward(loss)
+            model_engine.backward(total_loss)
             if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
                 # model step manages optimizer
                 model_engine.step()
@@ -670,21 +642,38 @@ def main():
                 break
 
         model_engine.eval()
-        for step, batch in enumerate(eval_dataloader):
+        losses = []
+        for step, batch in enumerate(mlm_eval_dataloader):
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
-                loss, predictions = model_engine(**batch)
                 
+                loss, _, predictions = model_engine(**batch)
+
+                losses.append(loss.unsqueeze(-1))
+
                 metric.add_batch(
                     predictions=predictions,
                     references=batch["labels"],
                 )
+
+        # for MLM
+        losses = torch.cat(losses, dim=-1)
+        losses = losses[: len(eval_dataset)]
+        try:
+            mean_loss = torch.mean(losses)
+            perplexity = math.exp(mean_loss)
+        except OverflowError:
+            perplexity = float("inf")
+
+        # for classification
         eval_metric = metric.compute()
+        
         if args.local_rank == 0:
+            writer.add_scalar('Validation/Perplexity', perplexity, model_engine.global_steps)
             writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model_engine.global_steps)
-            if "f1" in eval_metric.keys():
-                writer.add_scalar('Validation/F1', eval_metric['f1'], model_engine.global_steps)
-            logger.info(f"Valditaion step {model_engine.global_steps} results {eval_metric}")
+            
+            logger.info(f"Valditaion step {model_engine.global_steps} , perplexity : {perplexity}, accuracy : {eval_metric['accuracy']}")
+
             if eval_metric['accuracy'] > best_acc:
                 # TODO : save only the models greater than the threshold accuracy
                 best_acc = eval_metric['accuracy']
@@ -706,20 +695,27 @@ def main():
         if args.local_rank == 0:
             logger.info(f'EARLY STOP COUNT : {ealry_stop_cnt} / {args.early_stop}')
 
-    
     # load best dev model 
     # TODO: In ZeRO3 load checkpoint after save checkpoint do not work!!
     if not args.is_zero3:
-        model_engine.load_checkpoint(args.output_dir)
+        try:
+            model_engine.load_checkpoint(args.output_dir)
+        except:
+            if args.local_rank == 0:
+                logger.info('ERROR LOADING MODEL FOR TEST. RETRY.')
+            model_engine.load_checkpoint(args.output_dir)
+
         model_engine.eval()
-        for step, batch in enumerate(test_dataloader):
+        for step, batch in enumerate(mlm_test_dataloader):
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
-                _, predictions = model_engine(**batch)
+                
+                _, _, predictions = model_engine(**batch)
                 metric.add_batch(
                     predictions=predictions,
                     references=batch["labels"],
                 )
+
         test_metric = metric.compute()
         if args.local_rank == 0:
             writer.add_scalar('Test/Accuracy', test_metric['accuracy'])

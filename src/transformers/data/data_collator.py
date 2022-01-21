@@ -730,7 +730,14 @@ class DataCollatorForLanguageModeling(DataCollatorMixin):
         # If special token mask has been preprocessed, pop it from the dict.
         special_tokens_mask = batch.pop("special_tokens_mask", None)
         if self.mlm:
-            batch["input_ids"], batch["labels"] = self.torch_mask_tokens(
+            # ! HJ
+            # For MTL, add labels and input ids for classification
+            batch["input_ids"] = batch["input_ids"].clone()
+            if "label" in batch:
+                batch["labels"] = batch["label"]
+                del batch["label"]
+
+            batch["mlm_input_ids"], batch["mlm_labels"] = self.torch_mask_tokens(
                 batch["input_ids"], special_tokens_mask=special_tokens_mask
             )
         else:

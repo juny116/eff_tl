@@ -211,11 +211,13 @@ class GPT2Attention(nn.Module):
         if self.scale_attn_by_inverse_layer_idx:
             attn_weights = attn_weights / float(self.layer_idx + 1)
 
-        if not self.is_cross_attention:
-            # if only "normal" attention layer implements causal mask
-            query_length, key_length = query.size(-2), key.size(-2)
-            causal_mask = self.bias[:, :, key_length - query_length : key_length, :key_length].bool()
-            attn_weights = torch.where(causal_mask, attn_weights, self.masked_bias.to(attn_weights.dtype))
+        # ! HJ : for full self attention
+        # if not self.is_cross_attention:
+        #     # if only "normal" attention layer implements causal mask
+        #     query_length, key_length = query.size(-2), key.size(-2)
+        #     causal_mask = self.bias[:, :, key_length - query_length : key_length, :key_length].bool()
+        #     attn_weights = torch.where(causal_mask, attn_weights, self.masked_bias.to(attn_weights.dtype))
+        # ! HJ
 
         if attention_mask is not None:
             # Apply the attention mask
