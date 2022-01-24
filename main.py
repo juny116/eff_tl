@@ -615,8 +615,14 @@ def main():
             break
         model_engine.train()
 
-        mlm_loss_ratio = 0.5 - epoch * 0.5 / args.num_train_epochs
-        classification_loss_ratio = 0.5 + epoch * 0.5 / args.num_train_epochs
+        if epoch < 3:
+            mlm_loss_ratio = 0.5 - epoch * 0.5 / 3
+            classification_loss_ratio = 0.5 + epoch * 0.5 / 3
+        # after 3rd epoch train only the classifier
+        else:
+            mlm_loss_ratio = 0.0
+            classification_loss_ratio = 1.0
+
         if args.local_rank == 0:
             logger.info(f'Loss ratio : classification : {round(classification_loss_ratio,3)}, mlm : {round(mlm_loss_ratio,3)} > total : {mlm_loss_ratio + classification_loss_ratio}')
 
@@ -647,9 +653,9 @@ def main():
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
                 
-                loss, _, predictions = model_engine(**batch)
+                loss, mlm_loss, predictions = model_engine(**batch)
 
-                losses.append(loss.unsqueeze(-1))
+                losses.append(mlm_loss.unsqueeze(-1))
 
                 metric.add_batch(
                     predictions=predictions,
@@ -677,21 +683,20 @@ def main():
             if eval_metric['accuracy'] > best_acc:
                 # TODO : save only the models greater than the threshold accuracy
                 best_acc = eval_metric['accuracy']
+                ealry_stop_cnt = 0
                 if best_acc > args.save_threshold:
                     save_flag = True      
                 else:
                     save_flag = False      
             else:
                 save_flag = False
+                ealry_stop_cnt += 1
         
         # path, key, value, current rank, writer rank
         set_value_to_shared_json_file(args.output_dir, 'save_flag', save_flag, args.local_rank, 0)
         save_flag = get_value_from_shared_json_file(args.output_dir, 'save_flag')
         if save_flag:
             model_engine.save_checkpoint(args.output_dir)
-            ealry_stop_cnt = 0
-        else:
-            ealry_stop_cnt += 1
         if args.local_rank == 0:
             logger.info(f'EARLY STOP COUNT : {ealry_stop_cnt} / {args.early_stop}')
 
