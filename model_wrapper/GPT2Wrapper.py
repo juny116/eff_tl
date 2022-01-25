@@ -77,10 +77,13 @@ class GPT2Wrapper(torch.nn.Module):
         last_hidden_state = outputs.last_hidden_state
         loss, predictions = self.output_processor(last_hidden_state=last_hidden_state, attention_mask=attention_mask, labels=labels)
 
-        # for mlm task
-        mlm_outputs = self.transformer(inputs_embeds=mlm_inputs_embeds, attention_mask=attention_mask)
-        # shape : (batch, length, embedding_dim)
-        mlm_last_hidden_state = mlm_outputs.last_hidden_state
-        mlm_loss = self.mlm_output_processor(last_hidden_state=mlm_last_hidden_state, attention_mask=attention_mask, labels=mlm_labels)
 
-        return loss, mlm_loss, predictions
+        return loss, predictions
+
+        # # for mlm task
+        # mlm_outputs = self.transformer(inputs_embeds=mlm_inputs_embeds, attention_mask=attention_mask)
+        # # shape : (batch, length, embedding_dim)
+        # mlm_last_hidden_state = mlm_outputs.last_hidden_state
+        # mlm_loss = self.mlm_output_processor(last_hidden_state=mlm_last_hidden_state, attention_mask=attention_mask, labels=mlm_labels)
+
+        #return loss, mlm_loss, predictions

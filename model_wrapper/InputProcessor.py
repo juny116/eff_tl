@@ -20,13 +20,16 @@ class BaseInputProcessor(torch.nn.Module):
 
         # shape : (batch, length, embedding_dim)
         input_embeddings = self.embeddings(input_ids)
-        mlm_input_embeddings = self.embeddings(mlm_input_ids)
 
         assert batch_size == input_embeddings.shape[0]
         assert length == input_embeddings.shape[1]
+        
+        mlm_input_embeddings = None
+        if mlm_input_embeddings is not None:
+            mlm_input_embeddings = self.embeddings(mlm_input_ids)
 
-        assert batch_size == mlm_input_embeddings.shape[0]
-        assert length == mlm_input_embeddings.shape[1]
+            assert batch_size == mlm_input_embeddings.shape[0]
+            assert length == mlm_input_embeddings.shape[1]
 
         # input_embeddings : (batch, length, embedding_dim)
         # attention_mask   : (batch, length)

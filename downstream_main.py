@@ -173,48 +173,6 @@ def parse_args():
         type=int, 
         help='node rank for distributed training'
     )
-    parser.add_argument(
-        '--apply_lora', 
-        default=False, 
-        action="store_true",
-        help='apply LoRA params'
-    )
-    parser.add_argument(
-        '--lora_alpha', 
-        default=16, 
-        type=int, 
-        help='LoRA alpha'
-    )
-    parser.add_argument(
-        '--lora_r', 
-        default=8, 
-        type=int, 
-        help='LoRA r'
-    )
-    parser.add_argument(
-        '--apply_prefix', 
-        default=False, 
-        action="store_true",
-        help='apply prefix tuning params'
-    )
-    parser.add_argument(
-        '--num_prefix', 
-        default=10, 
-        type=int, 
-        help='number of prefix to append per layer'
-    )
-    parser.add_argument(
-        '--mid_dim', 
-        default=16, 
-        type=int, 
-        help='reparameterization dim'
-    )
-    parser.add_argument(
-        '--apply_adapter', 
-        default=False, 
-        action="store_true",
-        help='apply adapter tuning params'
-    )
 
     ## OURS ##
     parser.add_argument(
@@ -231,6 +189,12 @@ def parse_args():
     )
     parser.add_argument(
         "--pretrained_dir", 
+        type=str, 
+        default=None, 
+        help="Where the pretrained model is."
+    )
+    parser.add_argument(
+        "--tag", 
         type=str, 
         default=None, 
         help="Where the pretrained model is."
@@ -376,8 +340,6 @@ def main():
     # TODO: only inject pad_token_id in case of GPT
     config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, 
         finetuning_task=args.task_name, pad_token_id=tokenizer.unk_token_id,
-        apply_lora=args.apply_lora, lora_alpha=args.lora_alpha, lora_r=args.lora_r,
-        apply_prefix=args.apply_prefix, num_prefix=args.num_prefix, mid_dim=args.mid_dim,
     )
 
     # TODO : fix?
@@ -386,6 +348,11 @@ def main():
             model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
     else:
         model = GPT2Wrapper(config=config, model_name_or_path=args.model_name_or_path)
+
+
+    if args.local_rank != 0:
+        logger.info(f'Loading model from {args.pretrained_dir}/{args.tag}')
+    model = load_state_dict_from_zero_checkpoint(model=model, checkpoint_dir=args.pretrained_dir, tag=args.tag)
 
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
@@ -490,12 +457,12 @@ def main():
 
     # Set params to train
     trainable_param_names = []
-    if args.apply_lora:
-        trainable_param_names.append('lora')
-    if args.apply_prefix:
-        trainable_param_names.append('prefix')
-    if args.apply_adapter:
-        trainable_param_names.append('adapter')
+    # if args.apply_lora:
+    #     trainable_param_names.append('lora')
+    # if args.apply_prefix:
+    #     trainable_param_names.append('prefix')
+    # if args.apply_adapter:
+    #     trainable_param_names.append('adapter')
 
     # if no trainable_param_names -> full fine tune
     if len(trainable_param_names) > 0:
@@ -535,6 +502,7 @@ def main():
         },
     ]
 
+
     if args.local_rank == 0:
         num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         num_total_params = sum(p.numel() for p in model.parameters())
@@ -565,11 +533,7 @@ def main():
         num_training_steps=args.max_train_steps,
     )
 
-    
-    model = load_state_dict_from_zero_checkpoint(model, args.pretrained_dir)
-
     model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
-    
     
     
     # Train!
