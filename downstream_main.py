@@ -352,7 +352,7 @@ def main():
 
     if args.local_rank != 0:
         logger.info(f'Loading model from {args.pretrained_dir}/{args.tag}')
-    model = load_state_dict_from_zero_checkpoint(model=model, checkpoint_dir=args.pretrained_dir, tag=args.tag)
+    # model = load_state_dict_from_zero_checkpoint(model=model, checkpoint_dir=args.pretrained_dir, tag=args.tag)
 
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
@@ -535,6 +535,7 @@ def main():
 
     model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
     
+    model_engine.load_checkpoint(load_dir=args.pretrained_dir, tag=args.tag, load_module_only=True)
     
     # Train!
     if args.local_rank == 0:

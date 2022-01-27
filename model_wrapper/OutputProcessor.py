@@ -31,6 +31,13 @@ class BaseOutputProcessor(torch.nn.Module):
         # shape : (batch, num_labels)
         logits = self.score(mean_embedding.half())
 
+        # # for last hidden state representation
+        # sequence_lengths = torch.ne(attention_mask, 0).sum(-1) -1
+        # # shape : (batch, length, num_labels)
+        # full_logits = self.score(last_hidden_state)
+        # logits = full_logits[range(batch_size), sequence_lengths]
+        # # for last hidden state representation
+
         ## same code as transformers.GPT2ForSequenceClassification ##
         loss = None
         if self.config.problem_type is None:

@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 import datasets
-from datasets import load_dataset, load_metric, DatasetDict
+from datasets import load_dataset, DatasetDict
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
@@ -19,8 +19,6 @@ from transformers import (
     AutoConfig,
     AutoTokenizer,
     DataCollatorForLanguageModeling,
-    DataCollatorWithPadding,
-    default_data_collator,
     PretrainedConfig,
     get_scheduler,
     set_seed,
@@ -45,6 +43,7 @@ task_to_keys = {
     "sst2": ("sentence", None),
     "stsb": ("sentence1", "sentence2"),
     "wnli": ("sentence1", "sentence2"),
+    "openwebtext": ("text", None),
 }
 
 def parse_args():
@@ -153,6 +152,12 @@ def parse_args():
         default=False, 
         action="store_true",
         help='Overwrite output directory.'
+    )
+    parser.add_argument(
+        "--cache_dir", 
+        type=str, 
+        default=None, 
+        help="Where to cache dataset files."
     )
     parser.add_argument(
         "--seed", 
@@ -308,10 +313,17 @@ def main():
     if args.task_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = DatasetDict()
+
         if args.max_train_samples is not None:
-            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{args.max_train_samples}]')
+            if args.task_name == "openwebtext":
+                raw_train_dataset = load_dataset(args.task_name, split=f'train[:{args.max_train_samples}]', cache_dir=args.cache_dir)
+            else:
+                raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{args.max_train_samples}]')
         else:
-            raw_train_dataset = load_dataset("glue", args.task_name, split=f'train')
+            if args.task_name == "openwebtext":
+                raw_train_dataset = load_dataset(args.task_name, split='train')
+            else:
+                raw_train_dataset = load_dataset("glue", args.task_name, split=f'train')
         # Since glue test set is not opened, use 1K train as validation and original validation as test
         
         # for small datasets (RTE, ...)
@@ -327,12 +339,6 @@ def main():
             raw_datasets['train'] = train_test_split['train']
             raw_datasets['validation'] = train_test_split['test']
             
-            # for mnli 
-            if args.task_name == "mnli":
-                raw_datasets['test'] = load_dataset("glue", args.task_name, split='validation_matched')
-            # other tasks
-            else:
-                raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
     else:
         # Loading the dataset from local csv or json file.
         data_files = {}
@@ -350,8 +356,11 @@ def main():
 
     # Labels
     if args.task_name is not None:
-        label_list = raw_datasets["train"].features["label"].names
-        num_labels = len(label_list)
+        if 'label' in raw_datasets["train"].features:
+            label_list = raw_datasets["train"].features["label"].names
+            num_labels = len(label_list)
+        else:
+            num_labels = 0
     else:
         # Trying to have good defaults here, don't hesitate to tweak to your needs.
         label_list = raw_datasets["train"].unique("label")
@@ -383,37 +392,6 @@ def main():
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
 
-    # Some models have set the order of the labels to use, so let's make sure we do use it.
-    label_to_id = None
-    if (
-        model.config.label2id != PretrainedConfig(num_labels=num_labels).label2id
-        and args.task_name is not None
-    ):
-        # Some have all caps in their config, some don't.
-        label_name_to_id = {k.lower(): v for k, v in model.config.label2id.items()}
-        if list(sorted(label_name_to_id.keys())) == list(sorted(label_list)):
-            logger.info(
-                f"The configuration of the model provided the following label correspondence: {label_name_to_id}. "
-                "Using it!"
-            )
-            label_to_id = {i: label_name_to_id[label_list[i]] for i in range(num_labels)}
-        else:
-            logger.warning(
-                "Your model seems to have been trained with labels, but they don't match the dataset: ",
-                f"model labels: {list(sorted(label_name_to_id.keys()))}, dataset labels: {list(sorted(label_list))}."
-                "\nIgnoring the model labels as a result.",
-            )
-    elif args.task_name is None:
-        label_to_id = {v: i for i, v in enumerate(label_list)}
-
-    if label_to_id is not None:
-        model.config.label2id = label_to_id
-        model.config.id2label = {id: label for label, id in config.label2id.items()}
-    elif args.task_name is not None:
-        if args.local_rank == 0:
-            logger.info('Auto label2id, id2label created')
-        model.config.label2id = {l: i for i, l in enumerate(label_list)}
-        model.config.id2label = {id: label for label, id in config.label2id.items()}
 
     padding = "max_length" if args.pad_to_max_length else False
 
@@ -425,12 +403,8 @@ def main():
         result = tokenizer(*texts, padding=padding, max_length=args.max_length, truncation=True)
 
         if "label" in examples:
-            if label_to_id is not None:
-                # Map labels to IDs (not necessary for GLUE tasks)
-                result["labels"] = [label_to_id[l] for l in examples["label"]]
-            else:
-                # In all cases, rename the column to labels because the model will expect that.
-                result["labels"] = examples["label"]
+            # In all cases, rename the column to labels because the model will expect that.
+            result["labels"] = examples["label"]
         return result
 
     if args.local_rank != 0:
@@ -446,7 +420,6 @@ def main():
 
     train_dataset = processed_datasets["train"]
     eval_dataset = processed_datasets["validation"]
-    test_dataset = processed_datasets["test"]
 
     if args.local_rank == 0:
         # Log a few random samples from the training set:
@@ -454,58 +427,42 @@ def main():
             logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
         """ FOR ANALYSIS
-        labels2count = {}
+        length_sum = 0
+        sample_size = len(train_dataset)
         for dataset in train_dataset:
-            label = dataset['labels']
-            labels2count[label] = labels2count.get(label, 0) + 1
-        logger.info(f'TRAIN splits : {labels2count}')
+            inputs = dataset['input_ids']
+            inputs_length = len(inputs)
+            length_sum = length_sum + inputs_length
+        average_length = length_sum / sample_size
+        logger.info(f'Average TRAIN input length : {average_length} (#samples : {sample_size})')
 
-        labels2count = {}
+        length_sum = 0
+        sample_size = len(eval_dataset)
         for dataset in eval_dataset:
-            label = dataset['labels']
-            labels2count[label] = labels2count.get(label, 0) + 1
-        logger.info(f'VALID splits : {labels2count}')
+            inputs = dataset['input_ids']
+            inputs_length = len(inputs)
+            length_sum = length_sum + inputs_length
+        average_length = length_sum / sample_size
+        logger.info(f'Average EVAL input length : {average_length} (#samples : {sample_size})')
 
-        labels2count = {}
-        for dataset in test_dataset:
-            label = dataset['labels']
-            labels2count[label] = labels2count.get(label, 0) + 1
-        logger.info(f'TEST splits : {labels2count}')
         """
-
 
     # DataLoaders creation:
     mlm_data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=args.mlm_probability)
 
-    if args.pad_to_max_length:
-        data_collator = default_data_collator
-    else:
-        data_collator = DataCollatorWithPadding(tokenizer)
-
     train_sampler = DistributedSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size)
     mlm_train_dataloader = DataLoader(train_dataset, sampler=train_sampler, collate_fn=mlm_data_collator, batch_size=args.per_device_batch_size)
     
     eval_sampler = DistributedSampler(eval_dataset)
-    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)
     mlm_eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, collate_fn=mlm_data_collator, batch_size=args.per_device_batch_size, shuffle=False)
-    
-    test_sampler = DistributedSampler(test_dataset)
-    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, collate_fn=data_collator, batch_size=args.per_device_batch_size, shuffle=False)       
-    mlm_test_dataloader = DataLoader(test_dataset, sampler=test_sampler, collate_fn=mlm_data_collator, batch_size=args.per_device_batch_size, shuffle=False)       
+          
 
     # math around the number of training steps.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(len(mlm_train_dataloader) / args.gradient_accumulation_steps)
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     else:
         args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
-
-    # Get the metric function
-    if args.task_name is not None:
-        metric = load_metric('glue', args.task_name, num_process=args.world_size, process_id=args.local_rank)
-    else:
-        metric = load_metric("accuracy", num_process=args.world_size, process_id=args.local_rank)
 
     # Set params to train
     trainable_param_names = []
@@ -585,7 +542,7 @@ def main():
     )
 
     model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
-    # model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, config_params=args.ds_config)
+    
     # Train!
     if args.local_rank == 0:
         total_batch_size = args.per_device_batch_size * args.world_size * args.gradient_accumulation_steps
@@ -609,6 +566,8 @@ def main():
     for epoch in range(args.num_train_epochs):
         model_engine.train()
 
+        mlm_train_dataloader = DataLoader(train_dataset, sampler=train_sampler, collate_fn=mlm_data_collator, batch_size=args.per_device_batch_size)
+    
         for step, batch in enumerate(mlm_train_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
             
@@ -618,7 +577,7 @@ def main():
                 writer.add_scalar('Train/MLM Loss', loss, model_engine.global_steps)
 
             model_engine.backward(loss)
-            if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
+            if step % args.gradient_accumulation_steps == 0 or step == len(mlm_train_dataloader) - 1:
                 # model step manages optimizer
                 model_engine.step()
                 progress_bar.update(1)
@@ -657,36 +616,6 @@ def main():
         if save_flag:
             model_engine.save_checkpoint(args.output_dir, tag=f'epoch_{epoch+1}')
 
-    # load best dev model 
-    # TODO: In ZeRO3 load checkpoint after save checkpoint do not work!!
-    if not args.is_zero3:
-        try:
-            model_engine.load_checkpoint(args.output_dir)
-        except:
-            if args.local_rank == 0:
-                logger.info('ERROR LOADING MODEL FOR TEST. RETRY.')
-            model_engine.load_checkpoint(args.output_dir, tag=f'epoch_{epoch+1}')
-
-        model_engine.eval()
-        losses = []
-        for step, batch in enumerate(mlm_test_dataloader):
-            with torch.no_grad():
-                batch = {k: v.cuda() for k, v in batch.items()}
-                loss = model_engine(**batch)
-                losses.append(loss.unsqueeze(-1))
-
-        # for MLM
-        losses = torch.cat(losses, dim=-1)
-        losses = losses[: len(eval_dataset)]
-        try:
-            mean_loss = torch.mean(losses)
-            perplexity = math.exp(mean_loss)
-        except OverflowError:
-            perplexity = float("inf")
-
-        if args.local_rank == 0:
-            writer.add_scalar('Test/Perplexity', perplexity)
-            logger.info(f"TEST Perplexity {perplexity}")
 
 if __name__ == "__main__":
     main()

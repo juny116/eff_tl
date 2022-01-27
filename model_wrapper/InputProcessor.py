@@ -25,7 +25,7 @@ class BaseInputProcessor(torch.nn.Module):
         assert length == input_embeddings.shape[1]
         
         mlm_input_embeddings = None
-        if mlm_input_embeddings is not None:
+        if mlm_input_ids is not None:
             mlm_input_embeddings = self.embeddings(mlm_input_ids)
 
             assert batch_size == mlm_input_embeddings.shape[0]
