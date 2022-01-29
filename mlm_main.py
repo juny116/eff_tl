@@ -321,7 +321,7 @@ def main():
                 raw_train_dataset = load_dataset("glue", args.task_name, split=f'train[:{args.max_train_samples}]')
         else:
             if args.task_name == "openwebtext":
-                raw_train_dataset = load_dataset(args.task_name, split='train')
+                raw_train_dataset = load_dataset(args.task_name, split='train', cache_dir=args.cache_dir)
             else:
                 raw_train_dataset = load_dataset("glue", args.task_name, split=f'train')
         # Since glue test set is not opened, use 1K train as validation and original validation as test
