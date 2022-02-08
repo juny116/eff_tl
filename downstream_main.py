@@ -535,7 +535,7 @@ def main():
 
     model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, config_params=args.ds_config)
     
-    model_engine.load_checkpoint(load_dir=args.pretrained_dir, tag=args.tag, load_module_only=True)
+    model_engine.load_checkpoint(load_dir=args.pretrained_dir, tag=args.tag, load_module_only=True, load_module_strict=False)
     
     # Train!
     if args.local_rank == 0:

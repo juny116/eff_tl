@@ -360,7 +360,7 @@ def main():
             label_list = raw_datasets["train"].features["label"].names
             num_labels = len(label_list)
         else:
-            num_labels = 0
+            num_labels = 1
     else:
         # Trying to have good defaults here, don't hesitate to tweak to your needs.
         label_list = raw_datasets["train"].unique("label")

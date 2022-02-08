@@ -26,8 +26,8 @@ class GPT2Wrapper(torch.nn.Module):
         self.num_labels = config.num_labels
 
         # for output processing (output logits -> loss, prediction)
-        self.output_processor = BaseOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
-        self.mlm_output_processor = MLMOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
+        self._output_processor = BaseOutputProcessor(config=config, embedding_dim=self.embedding_dim, num_labels=self.num_labels)
+        self.mlm_output_processor = MLMOutputProcessor(config=config, embedding_dim=self.embedding_dim)
         
         self.input_processor = BaseInputProcessor(config=config, embeddings=self.transformer.wte)
                
@@ -55,18 +55,18 @@ class GPT2Wrapper(torch.nn.Module):
         inputs_embeds, mlm_inputs_embeds, attention_mask = self.input_processor(input_ids=input_ids, mlm_input_ids=mlm_input_ids, attention_mask=attention_mask)
 
         # for classification
-        # outputs = self.transformer(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
-        # # shape : (batch, length, embedding_dim)
-        # last_hidden_state = outputs.last_hidden_state
-        # loss, predictions = self.output_processor(last_hidden_state=last_hidden_state, attention_mask=attention_mask, labels=labels)
-        # return loss, predictions
+        outputs = self.transformer(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
+        # shape : (batch, length, embedding_dim)
+        last_hidden_state = outputs.last_hidden_state
+        loss, predictions = self._output_processor(last_hidden_state=last_hidden_state, attention_mask=attention_mask, labels=labels)
+        return loss, predictions
 
         # for mlm task
-        mlm_outputs = self.transformer(inputs_embeds=mlm_inputs_embeds, attention_mask=attention_mask)
-        # shape : (batch, length, embedding_dim)
-        mlm_last_hidden_state = mlm_outputs.last_hidden_state
-        mlm_loss = self.mlm_output_processor(last_hidden_state=mlm_last_hidden_state, attention_mask=attention_mask, labels=mlm_labels)
+        # mlm_outputs = self.transformer(inputs_embeds=mlm_inputs_embeds, attention_mask=attention_mask)
+        # # shape : (batch, length, embedding_dim)
+        # mlm_last_hidden_state = mlm_outputs.last_hidden_state
+        # mlm_loss = self.mlm_output_processor(last_hidden_state=mlm_last_hidden_state, attention_mask=attention_mask, labels=mlm_labels)
         
-        return mlm_loss
+        # return mlm_loss
 
         #return loss, mlm_loss, predictions

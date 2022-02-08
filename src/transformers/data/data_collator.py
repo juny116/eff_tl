@@ -732,7 +732,8 @@ class DataCollatorForLanguageModeling(DataCollatorMixin):
         if self.mlm:
             # ! HJ
             # For MTL, add labels and input ids for classification
-            batch["input_ids"] = batch["input_ids"].clone()
+            input_ids = batch["input_ids"].clone()
+            
             if "label" in batch:
                 batch["labels"] = batch["label"]
                 del batch["label"]
@@ -740,6 +741,7 @@ class DataCollatorForLanguageModeling(DataCollatorMixin):
             batch["mlm_input_ids"], batch["mlm_labels"] = self.torch_mask_tokens(
                 batch["input_ids"], special_tokens_mask=special_tokens_mask
             )
+            batch["input_ids"] = input_ids
         else:
             labels = batch["input_ids"].clone()
             if self.tokenizer.pad_token_id is not None:
