@@ -750,6 +750,7 @@ def main():
                 if best_acc > args.save_threshold:
                     save_flag = True      
                 else:
+                    logger.info(f"Below threshold {args.save_threshold}, Don't save file.")
                     save_flag = False      
             else:
                 save_flag = False
