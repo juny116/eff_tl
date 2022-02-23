@@ -3,7 +3,7 @@ import argparse
 import logging
 import math
 import os
-import random
+import csv
 import json
 from pathlib import Path
 
@@ -434,7 +434,7 @@ def main():
     model_engine.eval()
 
     # ignore generating comma(,) and new_line(\n)
-    ignored_sequences = [',', ' ,', ' \n', '\n', '\t']
+    ignored_sequences = [',', ' ,', ' \n', '\n', ' \t', '\t']
     # bad_words_ids = tokenizer(ignored_sequences, add_prefix_space=True).input_ids
     # bad_words_ids = [ tokenizer.encode(ignored_sequence, add_prefix_space=True) for ignored_sequence in ignored_sequences]
     bad_words_ids = [ tokenizer.encode(ignored_sequence, add_prefix_space=True) for ignored_sequence in ignored_sequences]
@@ -442,12 +442,13 @@ def main():
 
     # progress_bar = tqdm(range(len(train_dataloader)), disable=(args.local_rank != 0))
     progress_bar = tqdm(range(len(train_dataloader)), disable=(args.local_rank != 0))
-
     total_index = 0
     # write_path = os.path.join(args.output_dir, args.model_name_or_path)
     generation_writer = os.path.join(args.output_dir, "train_samples_generation_results.tsv")
     with open(generation_writer, "w") as file_writer:
-        file_writer.write('sample index\tlabel\tinput\tgeneration1\tgeneration2\tgeneration3\n')
+        tsv_writer = csv.writer(file_writer, delimiter='\t')
+        tsv_writer.writerow(['sample index', 'label', 'input', 'generation1', 'generation2', 'generation3'])
+        # file_writer.write('sample index\tlabel\tinput\tgeneration1\tgeneration2\tgeneration3')
         for step, batch in enumerate(train_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
             labels = batch['labels']
@@ -485,7 +486,8 @@ def main():
             generated_output = tokenizer.batch_decode(generated_output_ids, skip_special_tokens=True)
 
             for batch_index in range(batch_length):
-                file_writer.write(f'\n{total_index}\t{labels[batch_index]}\t{original_input[batch_index]}')
+                data = [total_index, labels[batch_index].item(), original_input[batch_index]]
+                
                 # file_writer.write(f'{input_ids[batch_index].tolist()}\n')
                 input_length = len(original_input[batch_index])
                 for generation_index in range(args.num_return_sequences):
@@ -493,21 +495,25 @@ def main():
                     full_generated_output = full_generated_output[input_length:]
                     for ignored_sequence in ignored_sequences:
                         full_generated_output = full_generated_output.replace(ignored_sequence, ' ')
-                    file_writer.write(f'\t{full_generated_output}')
+                    # file_writer.write(f'\t{full_generated_output}')
+                    data.append(full_generated_output)
                     # file_writer.write(f'{generated_output_ids[batch_index * args.num_return_sequences + generation_index]}\n')
                 
                 total_index += 1
+                tsv_writer.writerow(data)
             progress_bar.update(1)
 
-    logger.info('Done.')
-    exit()
+    # logger.info('Done.')
+    # exit()
 
     progress_bar = tqdm(range(len(eval_dataloader)), disable=(args.local_rank != 0))
     total_index = 0
     # write_path = os.path.join(args.output_dir, args.model_name_or_path)
     generation_writer = os.path.join(args.output_dir, "test_samples_generation_results.tsv")
     with open(generation_writer, "w") as file_writer:
-        file_writer.write('sample index\tlabel\tinput\tgeneration1\tgeneration2\tgeneration3\n')
+        tsv_writer = csv.writer(file_writer, delimiter='\t')
+        tsv_writer.writerow(['sample index', 'label', 'input', 'generation1', 'generation2', 'generation3'])
+        # file_writer.write('sample index\tlabel\tinput\tgeneration1\tgeneration2\tgeneration3')
         for step, batch in enumerate(eval_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
             labels = batch['labels']
@@ -545,7 +551,8 @@ def main():
             generated_output = tokenizer.batch_decode(generated_output_ids, skip_special_tokens=True)
 
             for batch_index in range(batch_length):
-                file_writer.write(f'\n{total_index}\t{labels[batch_index]}\t{original_input[batch_index]}')
+                data = [total_index, labels[batch_index].item(), original_input[batch_index]]
+                
                 # file_writer.write(f'{input_ids[batch_index].tolist()}\n')
                 input_length = len(original_input[batch_index])
                 for generation_index in range(args.num_return_sequences):
@@ -553,10 +560,12 @@ def main():
                     full_generated_output = full_generated_output[input_length:]
                     for ignored_sequence in ignored_sequences:
                         full_generated_output = full_generated_output.replace(ignored_sequence, ' ')
-                    file_writer.write(f'\t{full_generated_output}')
+                    # file_writer.write(f'\t{full_generated_output}')
+                    data.append(full_generated_output)
                     # file_writer.write(f'{generated_output_ids[batch_index * args.num_return_sequences + generation_index]}\n')
                 
                 total_index += 1
+                tsv_writer.writerow(data)
             progress_bar.update(1)
         
 
