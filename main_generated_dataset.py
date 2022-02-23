@@ -70,6 +70,7 @@ def parse_args():
     )
     parser.add_argument(
         "--max_train_samples",
+        type=int,
         default=None,
         help="Maximum train samples to use at train time, slice from raw train dataset for fast experiment purpose",
     )
@@ -367,6 +368,12 @@ def main():
 
                     label_list.append(label)
                     input_list.append(input_sentence)
+                
+                if args.max_train_samples is not None:
+                    print(args.max_train_samples)
+                    label_list = label_list[:args.max_train_samples]
+                    input_list = input_list[:args.max_train_samples]
+
             train_dict = {
                 'sentence' : input_list,
                 'label' : label_list
@@ -401,7 +408,7 @@ def main():
             validation_dataset = Dataset.from_dict(validation_dict)
 
         # for small datasets (RTE, ...)
-        if len(train_dataset) < 10000:
+        if len(train_dataset) < 10: #000:
             eval_test_split = validation_dataset.train_test_split(test_size=0.5)
             raw_datasets['train'] = train_dataset
             raw_datasets['validation'] = eval_test_split['train']
@@ -527,23 +534,38 @@ def main():
             logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
         """ FOR ANALYSIS
-        labels2count = {}
+        total_length = 0
+        max_length = 0
         for dataset in train_dataset:
-            label = dataset['labels']
-            labels2count[label] = labels2count.get(label, 0) + 1
-        logger.info(f'TRAIN splits : {labels2count}')
+            ids = dataset['input_ids']
+            total_length += len(ids)
+            if max_length < len(ids):
+                max_length = len(ids)
+        
+        logger.info(f'total data : {len(train_dataset)}, total length : {total_length}, average length : {total_length / len(train_dataset)}, max_length : {max_length}')
 
-        labels2count = {}
+        total_length = 0
+        max_length = 0
         for dataset in eval_dataset:
-            label = dataset['labels']
-            labels2count[label] = labels2count.get(label, 0) + 1
-        logger.info(f'VALID splits : {labels2count}')
+            ids = dataset['input_ids']
+            total_length += len(ids)
+            if max_length < len(ids):
+                max_length = len(ids)
+        
+        logger.info(f'total data : {len(eval_dataset)}, total length : {total_length}, average length {total_length / len(eval_dataset)}, max_length : {max_length}')
 
-        labels2count = {}
+
+        total_length = 0
+        max_length = 0
         for dataset in test_dataset:
-            label = dataset['labels']
-            labels2count[label] = labels2count.get(label, 0) + 1
-        logger.info(f'TEST splits : {labels2count}')
+            ids = dataset['input_ids']
+            total_length += len(ids)
+            if max_length < len(ids):
+                max_length = len(ids)
+        
+        logger.info(f'total data : {len(test_dataset)}, total length : {total_length}, average length {total_length / len(test_dataset)}, max_length : {max_length}')
+
+        exit()
         """
 
 
@@ -701,8 +723,13 @@ def main():
             if completed_steps >= args.max_train_steps:
                 break
 
+        
+        logger.info('Evaluating on validation set...')
+
+        validation_progress_bar = tqdm(range(len(eval_dataloader)), disable=(args.local_rank != 0))
         model_engine.eval()
         for step, batch in enumerate(eval_dataloader):
+            validation_progress_bar.update(1)
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
                 loss, predictions = model_engine(**batch)
@@ -740,8 +767,11 @@ def main():
 
 
         ## XXX : we do this only to monitor the test accuracy!
+        logger.info('Evaluating on test set...')
+        validation_progress_bar = tqdm(range(len(test_dataloader)), disable=(args.local_rank != 0))
         model_engine.eval()
         for step, batch in enumerate(test_dataloader):
+            validation_progress_bar.update(1)
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
                 _, predictions = model_engine(**batch)
@@ -764,7 +794,7 @@ def main():
     if not args.is_zero3:
         model_engine.load_checkpoint(args.output_dir)
         model_engine.eval()
-        for step, batch in enumerate(test_dataloader):
+        for step, batch in tqdm(enumerate(test_dataloader), disable=(args.local_rank != 0), desc="Final Test"):
             with torch.no_grad():
                 batch = {k: v.cuda() for k, v in batch.items()}
                 _, predictions = model_engine(**batch)
