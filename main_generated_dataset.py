@@ -781,7 +781,7 @@ def main():
                 )
         test_metric = metric.compute()
         if args.local_rank == 0:
-            writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
+            writer.add_scalar('Test/Accuracy', test_metric['accuracy'], model_engine.global_steps)
             if "f1" in test_metric.keys():
                 writer.add_scalar('Test/F1', test_metric['f1'], model_engine.global_steps)
             logger.info(f"TEST results {test_metric}")
