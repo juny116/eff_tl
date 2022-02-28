@@ -366,31 +366,49 @@ def main():
         raw_datasets = DatasetDict()
         if args.train_file is not None:
             pass
+        ## XXX : remove
+        wrong_list = [613,330,396,609,670,412,781,169,106,362,242,530,397,611,849,545,745,140,392,679,200,127,822,856,853,766,600,808,431,492,541,291,563,767,826,78,54,324,561,271,86,502,334,22,227,770]
         if args.validation_file is not None:
             input_list = []
             label_list = []
-            with open(args.validation_file) as f:
-                validation_lines = csv.reader(f, delimiter='\t')
-                # Remove header
-                next(validation_lines, None)
+            index_list = []
+            wrong_answer_file_path = os.path.join(args.output_dir, "wrong_prediction_clean.txt")
+            with open(wrong_answer_file_path, "w") as file_writer:
+                with open(args.validation_file) as f:
+                    validation_lines = csv.reader(f, delimiter='\t')
+                    # Remove header
+                    next(validation_lines, None)
 
-                for validation_line in validation_lines:
-                    sample_index = validation_line[0]
-                    label = int(validation_line[1])
-                    input_sentence = validation_line[2]
-                    generation1 = validation_line[3]
-                    generation2 = validation_line[4]
-                    generation3 = validation_line[5]
+                    for validation_line in validation_lines:
+                        sample_index = int(validation_line[0])
+                        label = int(validation_line[1])
+                        input_sentence = validation_line[2]
+                        generation1 = validation_line[3]
+                        generation2 = validation_line[4]
+                        generation3 = validation_line[5]
 
-                    generation = '.'.join([generation1, generation2, generation3])
+                        # XXX : remove
+                        if sample_index in wrong_list:
+                            file_writer.write(f'{sample_index} > label : {label} ======\n')
+                            file_writer.write(f'{input_sentence} \n')
+                            file_writer.write(f'{generation1}\n')
+                            file_writer.write(f'{generation2}\n')
+                            file_writer.write(f'{generation3}\n')
 
-                    input_sentence = generation + '.' + input_sentence
 
-                    label_list.append(label)
-                    input_list.append(input_sentence)
+                        generation = '.'.join([generation1, generation2, generation3])
+
+                        input_sentence = generation + '.' + input_sentence
+
+                        label_list.append(label)
+                        input_list.append(input_sentence)
+                        index_list.append(sample_index)
+            exit()
             validation_dict = {
+                'sample_index' : index_list,
                 'sentence' : input_list,
-                'label' : label_list
+                'label' : label_list,
+
             }
             validation_dataset = Dataset.from_dict(validation_dict)
             raw_datasets['validation'] = validation_dataset
@@ -486,6 +504,10 @@ def main():
             else:
                 # In all cases, rename the column to labels because the model will expect that.
                 result["labels"] = examples["label"]
+
+        if "sample_index" in examples:
+                result["sample_index"] = examples["sample_index"]
+
         return result
 
     if args.local_rank != 0:
@@ -567,7 +589,8 @@ def main():
                     prediction = predictions[batch_index]
                     if label != prediction:
                         original_input = tokenizer.decode(batch['input_ids'][batch_index], skip_special_tokens=True)
-                        file_writer.write(f'{index} | {original_input} | {label} | {prediction} \n')
+                        file_writer.write(f'{batch["sample_index"][batch_index].item()} | {original_input} | {label} | {prediction} \n')
+
                     
                     index += 1
 
