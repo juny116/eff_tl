@@ -135,10 +135,16 @@ def parse_args():
     )
     # FOR GENERATION
     parser.add_argument(
-        '--generation_length', 
+        '--generation_max_length', 
         default=10, 
         type=int, 
         help='Max length for generation.'
+    )
+    parser.add_argument(
+        '--generation_min_length', 
+        default=10, 
+        type=int, 
+        help='Min length for generation.'
     )
     parser.add_argument(
         '--num_beam', 
@@ -314,37 +320,37 @@ def main():
     # Preprocessing the datasets
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
 
-    # Some models have set the order of the labels to use, so let's make sure we do use it.
-    label_to_id = None
-    if (
-        model.config.label2id != PretrainedConfig(num_labels=num_labels).label2id
-        and args.task_name is not None
-    ):
-        # Some have all caps in their config, some don't.
-        label_name_to_id = {k.lower(): v for k, v in model.config.label2id.items()}
-        if list(sorted(label_name_to_id.keys())) == list(sorted(label_list)):
-            logger.info(
-                f"The configuration of the model provided the following label correspondence: {label_name_to_id}. "
-                "Using it!"
-            )
-            label_to_id = {i: label_name_to_id[label_list[i]] for i in range(num_labels)}
-        else:
-            logger.warning(
-                "Your model seems to have been trained with labels, but they don't match the dataset: ",
-                f"model labels: {list(sorted(label_name_to_id.keys()))}, dataset labels: {list(sorted(label_list))}."
-                "\nIgnoring the model labels as a result.",
-            )
-    elif args.task_name is None:
-        label_to_id = {v: i for i, v in enumerate(label_list)}
+    # # Some models have set the order of the labels to use, so let's make sure we do use it.
+    # label_to_id = None
+    # if (
+    #     model.config.label2id != PretrainedConfig(num_labels=num_labels).label2id
+    #     and args.task_name is not None
+    # ):
+    #     # Some have all caps in their config, some don't.
+    #     label_name_to_id = {k.lower(): v for k, v in model.config.label2id.items()}
+    #     if list(sorted(label_name_to_id.keys())) == list(sorted(label_list)):
+    #         logger.info(
+    #             f"The configuration of the model provided the following label correspondence: {label_name_to_id}. "
+    #             "Using it!"
+    #         )
+    #         label_to_id = {i: label_name_to_id[label_list[i]] for i in range(num_labels)}
+    #     else:
+    #         logger.warning(
+    #             "Your model seems to have been trained with labels, but they don't match the dataset: ",
+    #             f"model labels: {list(sorted(label_name_to_id.keys()))}, dataset labels: {list(sorted(label_list))}."
+    #             "\nIgnoring the model labels as a result.",
+    #         )
+    # elif args.task_name is None:
+    #     label_to_id = {v: i for i, v in enumerate(label_list)}
 
-    if label_to_id is not None:
-        model.config.label2id = label_to_id
-        model.config.id2label = {id: label for label, id in config.label2id.items()}
-    elif args.task_name is not None:
-        if args.local_rank == 0:
-            logger.info('Auto label2id, id2label created')
-        model.config.label2id = {l: i for i, l in enumerate(label_list)}
-        model.config.id2label = {id: label for label, id in config.label2id.items()}
+    # if label_to_id is not None:
+    #     model.config.label2id = label_to_id
+    #     model.config.id2label = {id: label for label, id in config.label2id.items()}
+    # elif args.task_name is not None:
+    #     if args.local_rank == 0:
+    #         logger.info('Auto label2id, id2label created')
+    #     model.config.label2id = {l: i for i, l in enumerate(label_list)}
+    #     model.config.id2label = {id: label for label, id in config.label2id.items()}
 
     padding = "max_length" if args.pad_to_max_length else False
 
@@ -353,22 +359,48 @@ def main():
         texts = (
             (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key])
         )
-        result = tokenizer(*texts, padding=padding, max_length=args.max_length, truncation=True)
+        sample_num = len(texts[0])
 
-        if args.manual_prompt:
-            logger.info(f'Generate input with manual prompt : {args.manual_prompt}')
-            manual_prompt = tokenizer(args.manual_prompt)
+        # for single-sentence tasks
+        if sentence2_key is None:
+            input_prompt = "Input: "
+            prompt = " Generate a description for this sentiment analysis input:"
 
-            result['input_ids'] = [ids + manual_prompt['input_ids'] for ids in result['input_ids']]
-            result['attention_mask'] =  [mask + manual_prompt['attention_mask'] for mask in result['attention_mask']]
+            augmented_texts = []
+
+            for sample_index in range(sample_num):
+                text = input_prompt + texts[0][sample_index] + "." + prompt
+                # print(text)
+                augmented_texts.append(text)
+            augmented_texts = (augmented_texts, )
+        else:
+            assert len(texts[0]) == len(texts[1]), f'{len(texts[0])} != {len(texts[1])}'
+            # XXX : fix?
+            premise = "Premise: "
+            hypothesis = " Hypothesis: "
+            prompt = " Generate a description for this premise and hypothesis:"
+
+            augmented_texts = []
+
+            for sample_index in range(sample_num):
+                text = premise + texts[0][sample_index] + hypothesis + texts[1][sample_index] + prompt
+                # print(text)
+                augmented_texts.append(text)
+            augmented_texts = (augmented_texts, )
+
+        result = tokenizer(*augmented_texts, padding=padding, max_length=args.max_length, truncation=True)
+
+        # if args.manual_prompt:
+        #     logger.info(f'Generate input with manual prompt : {args.manual_prompt}')
+        #     manual_prompt = tokenizer(args.manual_prompt)
+
+        #     result['input_ids'] = [ids + manual_prompt['input_ids'] for ids in result['input_ids']]
+        #     result['attention_mask'] =  [mask + manual_prompt['attention_mask'] for mask in result['attention_mask']]
 
         if "label" in examples:
-            if label_to_id is not None:
-                # Map labels to IDs (not necessary for GLUE tasks)
-                result["labels"] = [label_to_id[l] for l in examples["label"]]
-            else:
-                # In all cases, rename the column to labels because the model will expect that.
-                result["labels"] = examples["label"]
+            # In all cases, rename the column to labels because the model will expect that.
+            result["labels"] = examples["label"]
+
         return result
 
     if args.local_rank != 0:
@@ -440,6 +472,10 @@ def main():
     bad_words_ids = [ tokenizer.encode(ignored_sequence, add_prefix_space=True) for ignored_sequence in ignored_sequences]
     print(bad_words_ids)
 
+    eos = ":"
+    eos_id = tokenizer.encode(eos)
+
+
     # progress_bar = tqdm(range(len(train_dataloader)), disable=(args.local_rank != 0))
     progress_bar = tqdm(range(len(train_dataloader)), disable=(args.local_rank != 0))
     total_index = 0
@@ -447,38 +483,41 @@ def main():
     generation_writer = os.path.join(args.output_dir, "train_samples_generation_results.tsv")
     with open(generation_writer, "w") as file_writer:
         tsv_writer = csv.writer(file_writer, delimiter='\t')
-        tsv_writer.writerow(['sample index', 'label', 'input', 'generation1', 'generation2', 'generation3'])
+        tsv_writer.writerow(['sample index', 'label', 'input', 'prompt'])
         # file_writer.write('sample index\tlabel\tinput\tgeneration1\tgeneration2\tgeneration3')
         for step, batch in enumerate(train_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
             labels = batch['labels']
             input_ids = batch['input_ids']
             batch_length, input_length = input_ids.shape
-            original_input = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=True)
+            original_inputs = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=True)
 
             # max_length includes the input sentence length
             # for beam search
-            # generated_output = model_engine.module.generate(
+            generated_output_ids = model_engine.module.generate(
+                **batch, 
+                max_length=input_length+args.generation_max_length,
+                min_length=input_length+args.generation_min_length,
+                num_beams=args.num_beam,
+                no_repeat_ngram_size=args.no_repeat_ngram_size,
+                num_return_sequences=args.num_return_sequences,
+                forced_eos_token_id=eos_id,
+                early_stopping=True,
+                bad_words_ids=bad_words_ids
+            )
+
+            # generated_output_ids = model_engine.module.generate(
             #     **batch, 
-            #     max_length=input_length+args.generation_length,
-            #     num_beams=args.num_beam,
+            #     do_sample=True,
+            # max_length=input_length+args.generation_max_length,
+            # min_length=input_length+args.generation_min_length,
+            #     top_k=args.top_k,
+            #     top_p=args.top_p,
             #     no_repeat_ngram_size=args.no_repeat_ngram_size,
             #     num_return_sequences=args.num_return_sequences,
             #     early_stopping=True,
             #     bad_words_ids=bad_words_ids
             # )
-
-            generated_output_ids = model_engine.module.generate(
-                **batch, 
-                do_sample=True,
-                max_length=input_length+args.generation_length,
-                top_k=args.top_k,
-                top_p=args.top_p,
-                no_repeat_ngram_size=args.no_repeat_ngram_size,
-                num_return_sequences=args.num_return_sequences,
-                early_stopping=True,
-                bad_words_ids=bad_words_ids
-            )
 
             # generated_output = generated_output.reshape(batch_length, args.num_return_sequences, -1)
 
@@ -486,21 +525,29 @@ def main():
             generated_output = tokenizer.batch_decode(generated_output_ids, skip_special_tokens=True)
 
             for batch_index in range(batch_length):
-                data = [total_index, labels[batch_index].item(), original_input[batch_index]]
+                original_input = original_inputs[batch_index]
+                if sentence2_key is None:
+                    input_prompt = "Input:"
+                    prompt = "Generate a description for this sentiment analysis input:"
+                    original_input = original_input.replace(input_prompt, '')
+                    original_input = original_input.replace(prompt, '')
+                    
+                data = [total_index, labels[batch_index].item(), original_input]
                 
                 # file_writer.write(f'{input_ids[batch_index].tolist()}\n')
-                input_length = len(original_input[batch_index])
+                input_length = len(original_inputs[batch_index])
                 for generation_index in range(args.num_return_sequences):
                     full_generated_output = generated_output[batch_index * args.num_return_sequences + generation_index]
                     full_generated_output = full_generated_output[input_length:]
                     for ignored_sequence in ignored_sequences:
                         full_generated_output = full_generated_output.replace(ignored_sequence, ' ')
-                    # file_writer.write(f'\t{full_generated_output}')
                     data.append(full_generated_output)
+                    # file_writer.write(f'\t{full_generated_output}')
+                    # file_writer.write(f"{full_generated_output}\n")
                     # file_writer.write(f'{generated_output_ids[batch_index * args.num_return_sequences + generation_index]}\n')
-                
-                total_index += 1
                 tsv_writer.writerow(data)
+                total_index += 1
+                # file_writer.write("\n")
             progress_bar.update(1)
 
     # logger.info('Done.')
@@ -512,38 +559,42 @@ def main():
     generation_writer = os.path.join(args.output_dir, "test_samples_generation_results.tsv")
     with open(generation_writer, "w") as file_writer:
         tsv_writer = csv.writer(file_writer, delimiter='\t')
-        tsv_writer.writerow(['sample index', 'label', 'input', 'generation1', 'generation2', 'generation3'])
+        tsv_writer.writerow(['sample index', 'label', 'input', 'prompt'])
+        # tsv_writer.writerow(['sample index', 'label', 'input', 'generation1', 'generation2', 'generation3'])
         # file_writer.write('sample index\tlabel\tinput\tgeneration1\tgeneration2\tgeneration3')
         for step, batch in enumerate(eval_dataloader):
             batch = {k: v.cuda() for k, v in batch.items()}
             labels = batch['labels']
             input_ids = batch['input_ids']
             batch_length, input_length = input_ids.shape
-            original_input = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=True)
+            original_inputs = tokenizer.batch_decode(batch['input_ids'], skip_special_tokens=True)
 
             # max_length includes the input sentence length
             # for beam search
-            # generated_output = model_engine.module.generate(
+            generated_output_ids = model_engine.module.generate(
+                **batch, 
+                max_length=input_length+args.generation_max_length,
+                min_length=input_length+args.generation_min_length,
+                num_beams=args.num_beam,
+                no_repeat_ngram_size=args.no_repeat_ngram_size,
+                num_return_sequences=args.num_return_sequences,
+                forced_eos_token_id=eos_id,
+                early_stopping=True,
+                bad_words_ids=bad_words_ids
+            )
+
+            # generated_output_ids = model_engine.module.generate(
             #     **batch, 
-            #     max_length=input_length+args.generation_length,
-            #     num_beams=args.num_beam,
+            #     do_sample=True,
+            # max_length=input_length+args.generation_max_length,
+            # min_length=input_length+args.generation_min_length,
+            #     top_k=args.top_k,
+            #     top_p=args.top_p,
             #     no_repeat_ngram_size=args.no_repeat_ngram_size,
             #     num_return_sequences=args.num_return_sequences,
             #     early_stopping=True,
             #     bad_words_ids=bad_words_ids
             # )
-
-            generated_output_ids = model_engine.module.generate(
-                **batch, 
-                do_sample=True,
-                max_length=input_length+args.generation_length,
-                top_k=args.top_k,
-                top_p=args.top_p,
-                no_repeat_ngram_size=args.no_repeat_ngram_size,
-                num_return_sequences=args.num_return_sequences,
-                early_stopping=True,
-                bad_words_ids=bad_words_ids
-            )
 
             # generated_output = generated_output.reshape(batch_length, args.num_return_sequences, -1)
 
@@ -551,21 +602,29 @@ def main():
             generated_output = tokenizer.batch_decode(generated_output_ids, skip_special_tokens=True)
 
             for batch_index in range(batch_length):
-                data = [total_index, labels[batch_index].item(), original_input[batch_index]]
+                original_input = original_inputs[batch_index]
+                if sentence2_key is None:
+                    input_prompt = "Input:"
+                    prompt = "Generate a description for this sentiment analysis input:"
+                    original_input = original_input.replace(input_prompt, '')
+                    original_input = original_input.replace(prompt, '')
+                    
+                data = [total_index, labels[batch_index].item(), original_input]
                 
                 # file_writer.write(f'{input_ids[batch_index].tolist()}\n')
-                input_length = len(original_input[batch_index])
+                input_length = len(original_inputs[batch_index])
                 for generation_index in range(args.num_return_sequences):
                     full_generated_output = generated_output[batch_index * args.num_return_sequences + generation_index]
                     full_generated_output = full_generated_output[input_length:]
                     for ignored_sequence in ignored_sequences:
                         full_generated_output = full_generated_output.replace(ignored_sequence, ' ')
-                    # file_writer.write(f'\t{full_generated_output}')
                     data.append(full_generated_output)
+                    # file_writer.write(f'\t{full_generated_output}')
+                    # file_writer.write(f"{full_generated_output}\n")
                     # file_writer.write(f'{generated_output_ids[batch_index * args.num_return_sequences + generation_index]}\n')
-                
-                total_index += 1
                 tsv_writer.writerow(data)
+                total_index += 1
+                # file_writer.write("\n")
             progress_bar.update(1)
         
 

@@ -358,13 +358,9 @@ def main():
                     sample_index = train_line[0]
                     label = int(train_line[1])
                     input_sentence = train_line[2]
-                    generation1 = train_line[3]
-                    generation2 = train_line[4]
-                    generation3 = train_line[5]
+                    prompt = train_line[3]
 
-                    generation = '.'.join([generation1, generation2, generation3])
-
-                    input_sentence = generation + '.' + input_sentence
+                    input_sentence = '.'.join([input_sentence, prompt])
 
                     label_list.append(label)
                     input_list.append(input_sentence)
@@ -390,14 +386,9 @@ def main():
                 for validation_line in validation_lines:
                     sample_index = validation_line[0]
                     label = int(validation_line[1])
-                    input_sentence = validation_line[2]
-                    generation1 = validation_line[3]
-                    generation2 = validation_line[4]
-                    generation3 = validation_line[5]
+                    prompt = validation_line[2]
 
-                    generation = '.'.join([generation1, generation2, generation3])
-
-                    input_sentence = generation + '.' + input_sentence
+                    input_sentence = '.'.join([input_sentence, prompt])
 
                     label_list.append(label)
                     input_list.append(input_sentence)
@@ -406,6 +397,7 @@ def main():
                 'label' : label_list
             }
             validation_dataset = Dataset.from_dict(validation_dict)
+
 
         # for small datasets (RTE, ...)
         if len(train_dataset) < 10: #000:
@@ -740,10 +732,10 @@ def main():
                 )
         eval_metric = metric.compute()
         if args.local_rank == 0:
-            writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model_engine.global_steps)
+            writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], epoch)
             if "f1" in eval_metric.keys():
-                writer.add_scalar('Validation/F1', eval_metric['f1'], model_engine.global_steps)
-            logger.info(f"Valditaion step {model_engine.global_steps} results {eval_metric}")
+                writer.add_scalar('Validation/F1', eval_metric['f1'], epoch)
+            logger.info(f"Valditaion step {model_engine.global_steps}, {epoch} results {eval_metric}")
             if eval_metric['accuracy'] > best_acc:
                 # TODO : save only the models greater than the threshold accuracy
                 best_acc = eval_metric['accuracy']
@@ -767,26 +759,26 @@ def main():
             logger.info(f'EARLY STOP COUNT : {ealry_stop_cnt} / {args.early_stop}')
 
 
-        ## XXX : we do this only to monitor the test accuracy!
-        logger.info('Evaluating on test set...')
-        validation_progress_bar = tqdm(range(len(test_dataloader)), disable=(args.local_rank != 0))
-        model_engine.eval()
-        for step, batch in enumerate(test_dataloader):
-            validation_progress_bar.update(1)
-            with torch.no_grad():
-                batch = {k: v.cuda() for k, v in batch.items()}
-                _, predictions = model_engine(**batch)
-                metric.add_batch(
-                    predictions=predictions,
-                    references=batch["labels"],
-                )
-        test_metric = metric.compute()
-        if args.local_rank == 0:
-            writer.add_scalar('Test/Accuracy', test_metric['accuracy'], model_engine.global_steps)
-            if "f1" in test_metric.keys():
-                writer.add_scalar('Test/F1', test_metric['f1'], model_engine.global_steps)
-            logger.info(f"TEST results {test_metric}")
-        ## XXX : until here
+        # ## XXX : we do this only to monitor the test accuracy!
+        # logger.info('Evaluating on test set...')
+        # validation_progress_bar = tqdm(range(len(test_dataloader)), disable=(args.local_rank != 0))
+        # model_engine.eval()
+        # for step, batch in enumerate(test_dataloader):
+        #     validation_progress_bar.update(1)
+        #     with torch.no_grad():
+        #         batch = {k: v.cuda() for k, v in batch.items()}
+        #         _, predictions = model_engine(**batch)
+        #         metric.add_batch(
+        #             predictions=predictions,
+        #             references=batch["labels"],
+        #         )
+        # test_metric = metric.compute()
+        # if args.local_rank == 0:
+        #     writer.add_scalar('Test/Accuracy', test_metric['accuracy'], model_engine.global_steps)
+        #     if "f1" in test_metric.keys():
+        #         writer.add_scalar('Test/F1', test_metric['f1'], model_engine.global_steps)
+        #     logger.info(f"TEST results {test_metric}")
+        # ## XXX : until here
 
     
     logger.info('TEST ON BEST DEV MODEL.')
