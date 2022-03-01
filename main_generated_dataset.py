@@ -386,7 +386,8 @@ def main():
                 for validation_line in validation_lines:
                     sample_index = validation_line[0]
                     label = int(validation_line[1])
-                    prompt = validation_line[2]
+                    input_sentence = validation_line[2]
+                    prompt = validation_line[3]
 
                     input_sentence = '.'.join([input_sentence, prompt])
 
