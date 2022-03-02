@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 import datasets
-from datasets import load_dataset, load_metric, DatasetDict
+from datasets import load_dataset, load_metric, DatasetDict, Dataset
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
@@ -31,6 +31,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from model_wrapper.GPT2Wrapper import GPT2Wrapper
 from utils import save_config, set_value_to_shared_json_file, get_value_from_shared_json_file
+from dataset_utils import sst5_generate_dataset_dict
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,15 @@ task_to_keys = {
     "sst2": ("sentence", None),
     "stsb": ("sentence1", "sentence2"),
     "wnli": ("sentence1", "sentence2"),
+    "sst5": ("sentence", None),
+}
+
+task_to_path = {
+    "sst5" : {
+        "train" : "/home/heyjoonkim/data/datasets/sst5/train.csv",
+        "validation" : "/home/heyjoonkim/data/datasets/sst5/test.csv",
+        "dataset_processor" : sst5_generate_dataset_dict,
+    },
 }
 
 def parse_args():
@@ -276,6 +286,10 @@ def parse_args():
     if args.task_name is None and args.train_file is None and args.validation_file is None:
         raise ValueError("Need either a task name or a training/validation file.")
     else:
+        if args.task_name in task_to_path:
+            args.train_file = task_to_path[args.task_name]['train']
+            args.validation_file = task_to_path[args.task_name]['validation']
+
         if args.train_file is not None:
             extension = args.train_file.split(".")[-1]
             assert extension in ["csv", "json"], "`train_file` should be a csv or a json file."
@@ -346,7 +360,7 @@ def main():
 
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
-    if args.task_name is not None:
+    if args.task_name is not None and args.task_name not in task_to_path:
         # Downloading and loading a dataset from the hub.
         raw_datasets = DatasetDict()
         if args.max_train_samples is not None:
@@ -375,14 +389,30 @@ def main():
             else:
                 raw_datasets['test'] = load_dataset("glue", args.task_name, split=f'validation')
     else:
+        dataset_processor = task_to_path[args.task_name]["dataset_processor"]
+
         # Loading the dataset from local csv or json file.
-        data_files = {}
+        raw_datasets = DatasetDict()
         if args.train_file is not None:
-            data_files["train"] = args.train_file
+            train_dict = dataset_processor(args.train_file)
+            raw_train_dataset = Dataset.from_dict(train_dict)
         if args.validation_file is not None:
-            data_files["validation"] = args.validation_file
-        extension = (args.train_file if args.train_file is not None else args.valid_file).split(".")[-1]
-        raw_datasets = load_dataset(extension, data_files=data_files)
+            validation_dict = dataset_processor(args.validation_file)
+            raw_validation_dataset = Dataset.from_dict(validation_dict)
+
+        # for small datasets (RTE, ...)
+        if len(raw_train_dataset) < 5000:
+            eval_test_split = raw_validation_dataset.train_test_split(test_size=0.5)
+            raw_datasets['train'] = raw_train_dataset
+            raw_datasets['validation'] = eval_test_split['train']
+            raw_datasets['test'] = eval_test_split['test']
+        # for larger datasets
+        else:
+            train_test_split = raw_train_dataset.train_test_split(test_size=1000)
+            raw_datasets['train'] = train_test_split['train']
+            raw_datasets['validation'] = train_test_split['test']
+            raw_datasets['test'] = raw_validation_dataset
+            
 
     if args.local_rank == 0:
         logger.info('TRAIN / VALIDATION / TEST split.')
@@ -390,13 +420,12 @@ def main():
             logger.info(f'{split} > {len(dataset)}')
 
     # Labels
-    if args.task_name is not None:
+    if args.task_name is not None and args.task_name not in task_to_path:
         label_list = raw_datasets["train"].features["label"].names
         num_labels = len(label_list)
     else:
         # Trying to have good defaults here, don't hesitate to tweak to your needs.
-        label_list = raw_datasets["train"].unique("label")
-        label_list.sort()  # Let's sort it for determinism
+        label_list = set(raw_datasets["train"]['label'])
         num_labels = len(label_list)
 
     # Load pretrained model and tokenizer
@@ -494,25 +523,50 @@ def main():
         for index in random.sample(range(len(train_dataset)), 1):
             logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
-        """ FOR ANALYSIS
+        #""" FOR ANALYSIS
         labels2count = {}
+        total_length = 0
+        max_length = 0
         for dataset in train_dataset:
             label = dataset['labels']
             labels2count[label] = labels2count.get(label, 0) + 1
+            input_ids = dataset['input_ids']
+            total_length += len(input_ids)
+            if max_length < len(input_ids):
+                max_length = len(input_ids)
+            
         logger.info(f'TRAIN splits : {labels2count}')
+        logger.info(f'TRAIN max length : {max_length}')
+        logger.info(f'TRAIN avg length : {total_length / len(train_dataset)}')
 
         labels2count = {}
+        total_length = 0
+        max_length = 0
         for dataset in eval_dataset:
             label = dataset['labels']
             labels2count[label] = labels2count.get(label, 0) + 1
+            input_ids = dataset['input_ids']
+            total_length += len(input_ids)
+            if max_length < len(input_ids):
+                max_length = len(input_ids)
         logger.info(f'VALID splits : {labels2count}')
+        logger.info(f'VALID max length : {max_length}')
+        logger.info(f'VALID avg length : {total_length / len(eval_dataset)}')
 
         labels2count = {}
+        total_length = 0
+        max_length = 0
         for dataset in test_dataset:
             label = dataset['labels']
             labels2count[label] = labels2count.get(label, 0) + 1
+            input_ids = dataset['input_ids']
+            total_length += len(input_ids)
+            if max_length < len(input_ids):
+                max_length = len(input_ids)
         logger.info(f'TEST splits : {labels2count}')
-        """
+        logger.info(f'TEST max length : {max_length}')
+        logger.info(f'TEST avg length : {total_length / len(test_dataset)}')
+        #"""
 
 
     # DataLoaders creation:
@@ -536,7 +590,7 @@ def main():
         args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
     # Get the metric function
-    if args.task_name is not None:
+    if args.task_name is not None and args.task_name not in task_to_path:
         metric = load_metric('glue', args.task_name, num_process=args.world_size, process_id=args.local_rank)
     else:
         metric = load_metric("accuracy", num_process=args.world_size, process_id=args.local_rank)
@@ -681,10 +735,10 @@ def main():
                 )
         eval_metric = metric.compute()
         if args.local_rank == 0:
-            writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], model_engine.global_steps)
+            writer.add_scalar('Validation/Accuracy', eval_metric['accuracy'], epoch)
             if "f1" in eval_metric.keys():
-                writer.add_scalar('Validation/F1', eval_metric['f1'], model_engine.global_steps)
-            logger.info(f"Valditaion step {model_engine.global_steps} results {eval_metric}")
+                writer.add_scalar('Validation/F1', eval_metric['f1'], epoch)
+            logger.info(f"Valditaion epoch {epoch} ({model_engine.global_steps} step) results {eval_metric}")
             if eval_metric['accuracy'] > best_acc:
                 # TODO : save only the models greater than the threshold accuracy
                 best_acc = eval_metric['accuracy']
@@ -724,7 +778,7 @@ def main():
         if args.local_rank == 0:
             writer.add_scalar('Test/Accuracy', test_metric['accuracy'])
             if "f1" in test_metric.keys():
-                writer.add_scalar('Test/F1', test_metric['f1'], model_engine.global_steps)
+                writer.add_scalar('Test/F1', test_metric['f1'])
             logger.info(f"TEST results {test_metric}")
 
 if __name__ == "__main__":
