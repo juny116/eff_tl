@@ -48,6 +48,7 @@ class GPT2Wrapper(torch.nn.Module):
         output_attentions=None,
         output_hidden_states=None,
         return_dict=None,
+        **kwargs, 
     ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         # t = GPT2Tokenizer.from_pretrained('gpt2')
