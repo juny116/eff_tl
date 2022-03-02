@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 import datasets
-from datasets import load_dataset, load_metric, DatasetDict
+from datasets import load_dataset, load_metric, DatasetDict, Dataset
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
@@ -30,6 +30,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from model_wrapper.GPT2Wrapper import GPT2Wrapper
 from utils import save_config, set_value_to_shared_json_file, get_value_from_shared_json_file
+from dataset_utils import sst5_generate_dataset_dict
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,15 @@ task_to_keys = {
     "sst2": ("sentence", None),
     "stsb": ("sentence1", "sentence2"),
     "wnli": ("sentence1", "sentence2"),
+    "sst5": ("sentence", None),
+}
+
+task_to_path = {
+    "sst5" : {
+        "train" : "/home/heyjoonkim/data/datasets/sst5/train.csv",
+        "validation" : "/home/heyjoonkim/data/datasets/sst5/test.csv",
+        "dataset_processor" : sst5_generate_dataset_dict,
+    },
 }
 
 def parse_args():
@@ -181,6 +191,10 @@ def parse_args():
     if args.task_name is None and args.train_file is None and args.validation_file is None:
         raise ValueError("Need either a task name or a training/validation file.")
     else:
+        if args.task_name in task_to_path:
+            args.train_file = task_to_path[args.task_name]['train']
+            args.validation_file = task_to_path[args.task_name]['validation']
+
         if args.train_file is not None:
             extension = args.train_file.split(".")[-1]
             assert extension in ["csv", "json"], "`train_file` should be a csv or a json file."
@@ -250,7 +264,8 @@ def main():
 
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
-    if args.task_name is not None:
+    if args.task_name is not None and args.task_name not in task_to_path:
+    # if args.train_file is None and args.validation_file is None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = DatasetDict()
         if args.max_train_samples is not None:
@@ -268,14 +283,19 @@ def main():
         else:
             raw_datasets['validation'] = load_dataset("glue", args.task_name, split=f'validation')
     else:
+
+        dataset_processor = task_to_path[args.task_name]["dataset_processor"]
+
         # Loading the dataset from local csv or json file.
-        data_files = {}
+        raw_datasets = DatasetDict()
         if args.train_file is not None:
-            data_files["train"] = args.train_file
+            train_dict = dataset_processor(args.train_file)
+            train_dataset = Dataset.from_dict(train_dict)
+            raw_datasets['train'] = train_dataset
         if args.validation_file is not None:
-            data_files["validation"] = args.validation_file
-        extension = (args.train_file if args.train_file is not None else args.valid_file).split(".")[-1]
-        raw_datasets = load_dataset(extension, data_files=data_files)
+            validation_dict = dataset_processor(args.validation_file)
+            validation_dataset = Dataset.from_dict(validation_dict)
+            raw_datasets['validation'] = validation_dataset
 
     if args.local_rank == 0:
         logger.info('TRAIN / VALIDATION split.')
@@ -283,7 +303,7 @@ def main():
             logger.info(f'{split} > {len(dataset)}')
 
     # Labels
-    if args.task_name is not None:
+    if args.task_name is not None and args.task_name not in task_to_path:
         label_list = raw_datasets["train"].features["label"].names
         num_labels = len(label_list)
     else:
