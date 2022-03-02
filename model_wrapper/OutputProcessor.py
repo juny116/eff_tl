@@ -24,19 +24,19 @@ class BaseOutputProcessor(torch.nn.Module):
 
         batch_size, _ = attention_mask.shape
 
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-        # shape : (batch, embedding_dim)
-        mean_embedding = torch.sum(last_hidden_state * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-        
-        # shape : (batch, num_labels)
-        logits = self.score(mean_embedding.half())
+        # input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+        # # shape : (batch, embedding_dim)
+        # mean_embedding = torch.sum(last_hidden_state * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+        # # shape : (batch, num_labels)
+        # logits = self.score(mean_embedding.half())
 
-        # # for last hidden state representation
-        # sequence_lengths = torch.ne(attention_mask, 0).sum(-1) -1
-        # # shape : (batch, length, num_labels)
-        # full_logits = self.score(last_hidden_state)
-        # logits = full_logits[range(batch_size), sequence_lengths]
-        # # for last hidden state representation
+        # for last hidden state representation
+        sequence_lengths = torch.ne(attention_mask, 0).sum(-1) -1
+        # shape : (batch, length, num_labels)
+        full_logits = self.score(last_hidden_state)
+        logits = full_logits[range(batch_size), sequence_lengths]
+        # for last hidden state representation
+
 
         ## same code as transformers.GPT2ForSequenceClassification ##
         loss = None
