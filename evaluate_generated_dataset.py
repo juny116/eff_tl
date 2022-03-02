@@ -291,8 +291,7 @@ def parse_args():
         raise ValueError("Need either a task name or a training/validation file.")
     else:
         if args.train_file is not None:
-            extension = args.train_file.split(".")[-1]
-            assert extension in ["csv", "json"], "`train_file` should be a csv or a json file."
+            raise NotImplementedError('Only for validation.')
         if args.validation_file is not None:
             extension = args.validation_file.split(".")[-1]
             assert extension in ["csv", "json", "tsv"], "`validation_file` should be a csv/json/tsv file."
