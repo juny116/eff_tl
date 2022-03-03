@@ -4,6 +4,37 @@
 # otherwise we use load_dataset() from huggingface library.
 #
 
+import csv
+
+def custom_generate_dataset_dict(filename):
+    input_list = []
+    label_list = []
+    with open(filename) as f:
+        validation_lines = csv.reader(f, delimiter='\t')
+        # Remove header
+        next(validation_lines, None)
+
+        for validation_line in validation_lines:
+            sample_index = validation_line[0]
+            label = int(validation_line[1])
+            input_sentence = validation_line[2]
+            generation1 = validation_line[3]
+            generation2 = validation_line[4]
+            generation3 = validation_line[5]
+
+            generation = '.'.join([generation1, generation2, generation3])
+
+            input_sentence = generation + '.' + input_sentence
+
+            label_list.append(label)
+            input_list.append(input_sentence)
+            
+    return_dict = {
+        'sentence' : input_list,
+        'label' : label_list
+    }
+
+    return return_dict
 
 # for SST-5
 def sst5_generate_dataset_dict(filename):

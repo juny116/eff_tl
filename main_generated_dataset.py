@@ -32,6 +32,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from model_wrapper.GPT2Wrapper import GPT2Wrapper
 from utils import save_config, set_value_to_shared_json_file, get_value_from_shared_json_file
+from dataset_utils import custom_generate_dataset_dict
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,12 @@ task_to_keys = {
     "sst2": ("sentence", None),
     "stsb": ("sentence1", "sentence2"),
     "wnli": ("sentence1", "sentence2"),
+    "sst5": ("sentence", None),
+    "mr": ("sentence", None),
+    "cr": ("sentence", None),
+    "mpqa": ("sentence", None),
+    "subj": ("sentence", None),
+    "trec": ("sentence", None),
 }
 
 def parse_args():
@@ -347,68 +354,14 @@ def main():
         # Loading the dataset from local csv or json file.
         raw_datasets = DatasetDict()
         if args.train_file is not None:
-            input_list = []
-            label_list = []
-            with open(args.train_file) as f:
-                train_lines = csv.reader(f, delimiter='\t')
-                # Remove header
-                next(train_lines, None)
-
-                for train_line in train_lines:
-                    sample_index = train_line[0]
-                    label = int(train_line[1])
-                    input_sentence = train_line[2]
-                    generation1 = train_line[3]
-                    generation2 = train_line[4]
-                    generation3 = train_line[5]
-
-                    generation = '.'.join([generation1, generation2, generation3])
-
-                    input_sentence = generation + '.' + input_sentence
-
-                    label_list.append(label)
-                    input_list.append(input_sentence)
-                
-                if args.max_train_samples is not None:
-                    print(args.max_train_samples)
-                    label_list = label_list[:args.max_train_samples]
-                    input_list = input_list[:args.max_train_samples]
-
-            train_dict = {
-                'sentence' : input_list,
-                'label' : label_list
-            }
+            train_dict = custom_generate_dataset_dict(args.train_file)
             train_dataset = Dataset.from_dict(train_dict)
         if args.validation_file is not None:
-            input_list = []
-            label_list = []
-            with open(args.validation_file) as f:
-                validation_lines = csv.reader(f, delimiter='\t')
-                # Remove header
-                next(validation_lines, None)
-
-                for validation_line in validation_lines:
-                    sample_index = validation_line[0]
-                    label = int(validation_line[1])
-                    input_sentence = validation_line[2]
-                    generation1 = validation_line[3]
-                    generation2 = validation_line[4]
-                    generation3 = validation_line[5]
-
-                    generation = '.'.join([generation1, generation2, generation3])
-
-                    input_sentence = generation + '.' + input_sentence
-
-                    label_list.append(label)
-                    input_list.append(input_sentence)
-            validation_dict = {
-                'sentence' : input_list,
-                'label' : label_list
-            }
+            validation_dict = custom_generate_dataset_dict(args.validation_file)
             validation_dataset = Dataset.from_dict(validation_dict)
 
         # for small datasets (RTE, ...)
-        if len(train_dataset) < 10: #000:
+        if len(train_dataset) < 5000: #000:
             eval_test_split = validation_dataset.train_test_split(test_size=0.5)
             raw_datasets['train'] = train_dataset
             raw_datasets['validation'] = eval_test_split['train']
@@ -768,24 +721,24 @@ def main():
 
 
         ## XXX : we do this only to monitor the test accuracy!
-        logger.info('Evaluating on test set...')
-        validation_progress_bar = tqdm(range(len(test_dataloader)), disable=(args.local_rank != 0))
-        model_engine.eval()
-        for step, batch in enumerate(test_dataloader):
-            validation_progress_bar.update(1)
-            with torch.no_grad():
-                batch = {k: v.cuda() for k, v in batch.items()}
-                _, predictions = model_engine(**batch)
-                metric.add_batch(
-                    predictions=predictions,
-                    references=batch["labels"],
-                )
-        test_metric = metric.compute()
-        if args.local_rank == 0:
-            writer.add_scalar('Test/Accuracy', test_metric['accuracy'], model_engine.global_steps)
-            if "f1" in test_metric.keys():
-                writer.add_scalar('Test/F1', test_metric['f1'], model_engine.global_steps)
-            logger.info(f"TEST results {test_metric}")
+        # logger.info('Evaluating on test set...')
+        # validation_progress_bar = tqdm(range(len(test_dataloader)), disable=(args.local_rank != 0))
+        # model_engine.eval()
+        # for step, batch in enumerate(test_dataloader):
+        #     validation_progress_bar.update(1)
+        #     with torch.no_grad():
+        #         batch = {k: v.cuda() for k, v in batch.items()}
+        #         _, predictions = model_engine(**batch)
+        #         metric.add_batch(
+        #             predictions=predictions,
+        #             references=batch["labels"],
+        #         )
+        # test_metric = metric.compute()
+        # if args.local_rank == 0:
+        #     writer.add_scalar('Test/Accuracy', test_metric['accuracy'], model_engine.global_steps)
+        #     if "f1" in test_metric.keys():
+        #         writer.add_scalar('Test/F1', test_metric['f1'], model_engine.global_steps)
+        #     logger.info(f"TEST results {test_metric}")
         ## XXX : until here
 
     
