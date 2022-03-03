@@ -31,7 +31,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from model_wrapper.GPT2Wrapper import GPT2Wrapper
 from utils import save_config, set_value_to_shared_json_file, get_value_from_shared_json_file
-from dataset_utils import sst5_generate_dataset_dict
+from dataset_utils import task_to_path
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +46,11 @@ task_to_keys = {
     "stsb": ("sentence1", "sentence2"),
     "wnli": ("sentence1", "sentence2"),
     "sst5": ("sentence", None),
-}
-
-task_to_path = {
-    "sst5" : {
-        "train" : "/home/heyjoonkim/data/datasets/sst5/train.csv",
-        "validation" : "/home/heyjoonkim/data/datasets/sst5/test.csv",
-        "dataset_processor" : sst5_generate_dataset_dict,
-    },
+    "mr": ("sentence", None),
+    "cr": ("sentence", None),
+    "mpqa": ("sentence", None),
+    "subj": ("sentence", None),
+    "trec": ("sentence", None),
 }
 
 def parse_args():
